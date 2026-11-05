@@ -86,6 +86,9 @@ pub struct Query {
     /// At least one of these must hold, if non-empty (0.2); e.g. a search over name, e-mail, phone.
     pub any: Vec<Cond>,
     pub order: Order,
+    /// If set, order by this index field instead of `order`: smallest normalised value of the key
+    /// ascending (objects without the key last), ties by name key, then id (0.2).
+    pub order_by_index: Option<String>,
     pub limit: Option<usize>,
     pub offset: usize,
 }
@@ -156,6 +159,11 @@ impl Query {
             op: Op::Prefix,
             value: v.into(),
         })
+    }
+    /// Order by an index field (see [`Query::order_by_index`] field).
+    pub fn order_by_index(mut self, key: impl Into<String>) -> Self {
+        self.order_by_index = Some(key.into());
+        self
     }
     pub fn ordered(mut self, o: Order) -> Self {
         self.order = o;

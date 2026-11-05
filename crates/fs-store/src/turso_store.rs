@@ -1053,6 +1053,15 @@ impl Store for TursoStore {
             Order::StartAsc => "COALESCE(o.start_time, 9223372036854775807) ASC, o.id ASC",
             Order::StartDesc => "COALESCE(o.start_time, -9223372036854775807) DESC, o.id DESC",
         };
+        let order = match &q.order_by_index {
+            Some(k) => {
+                let sub = "(SELECT MIN(x.value_norm) FROM index_fields x WHERE x.object_id = o.id AND x.key = ?)";
+                p.push(Value::Text(k.clone()));
+                p.push(Value::Text(k.clone()));
+                format!("{sub} IS NULL, {sub}, o.name_sort ASC, o.id ASC")
+            }
+            None => order.to_string(),
+        };
         let cols = OBJECT_COLS
             .split(", ")
             .map(|c| format!("o.{c}"))

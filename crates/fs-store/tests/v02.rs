@@ -551,3 +551,25 @@ async fn fresh_database_has_version_and_refuses_newer() {
         Err(Error::Backend(_))
     ));
 }
+
+#[tokio::test]
+async fn order_by_index_field() {
+    let s = mem().await;
+    for (n, k) in [
+        ("Ada Lovelace", "lovelace, ada"),
+        ("Zed Abel", "Abel, zed"),
+        ("Mid Dle", "Müller, mid"),
+    ] {
+        s.put(obj("Profile", n).with_index("name_sort", k), ME)
+            .await
+            .unwrap();
+    }
+    s.put(obj("Profile", "No Key"), ME).await.unwrap();
+    let q = Query::new().of_type("Profile").order_by_index("name_sort");
+    assert_eq!(
+        names(&s.query(&q).await.unwrap()),
+        ["Zed Abel", "Ada Lovelace", "Mid Dle", "No Key"]
+    );
+    let q = q.limit(1).offset(1);
+    assert_eq!(names(&s.query(&q).await.unwrap()), ["Ada Lovelace"]);
+}

@@ -16,7 +16,7 @@ Version 0.2.0 (local only, never pushed; the GitHub repo of the same name is the
 | `put_and_log(object, actor, extra)` (0.2) | done: `Create`/`Update` plus any number of log-only extras (`Accept`, `TentativeAccept`, ...) in one transaction; fault-injection test (`inject_fault_before_extra`) proves all-or-nothing, nothing published on failure |
 | `ActivityKind` (0.2) | added `Invite`, `TentativeAccept`, `Join`, `Leave`, `Like`, `Move` (log-only); stored as the plain string name, so 0.1 data reads unchanged |
 | Query (0.2) | type / context / attributed_to / exact index pairs (as before) plus `Cond` filters: `Op::{Eq,Gt,Ge,Lt,Le,Prefix,Contains}` on index fields, name, `describes` (Eq only) and envelope times (`start`/`end`/`published`/`updated`); `any` = OR-group, everything AND-ed; `limit`/`offset`/`count` unchanged |
-| Ordering (0.2) | `NameAsc/NameDesc` case-insensitive and Unicode-normalised via `name_sort`; `StartAsc/StartDesc` (undated last) |
+| Ordering (0.2) | `order_by_index(key)` (smallest normalised value, e.g. contacts "surname, given"); `NameAsc/NameDesc` case-insensitive and Unicode-normalised via `name_sort`; `StartAsc/StartDesc` (undated last) |
 | Envelope (0.2) | optional `describes` (AS2 Profile), `start_time`/`end_time` (AS2 `startTime`/`endTime`) as columns |
 | Schema versioning (0.2) | table `schema_version`; version 2 now; a 0.1 database (no table) is migrated in one transaction on open (ALTER + backfill of sort keys); a newer database is refused. Migration test builds a verbatim 0.1 file |
 | Full-text search | substring/prefix only (below); tokenised FTS **not yet** (Turso's tantivy-based `fts` feature is not enabled) |
@@ -27,7 +27,7 @@ Version 0.2.0 (local only, never pushed; the GitHub repo of the same name is the
 | Sensitive data (ADR 0029) | envelope carries DPV categories; unencrypted store refuses sensitive objects unless opted out. No auto-link logic here (hub concern) |
 | Hub sync | only the data side: `activities(unsynced_only / after)` + `mark_synced`. No IPC (belongs to fs-hub) |
 | Remote (HTTPS) backend | not started; trait is backend-neutral |
-| Tests | 36: integration (temp dirs, in-memory; 19 + 12 new in `tests/v02.rs`), property tests (model-based undo/redo, compaction invariants), unit tests for the stack logic and `sort_key` |
+| Tests | 37: integration (temp dirs, in-memory; 19 + 13 new in `tests/v02.rs`), property tests (model-based undo/redo, compaction invariants), unit tests for the stack logic and `sort_key` |
 | Example | `cargo run -p fs-store --example contacts` imports the demo contacts (`Profile`) and events (`Event`) |
 
 ## Object model (ADR 0020, 0030, 0032)
