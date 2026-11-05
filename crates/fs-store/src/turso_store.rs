@@ -16,13 +16,18 @@ use tokio::sync::{Mutex, broadcast};
 use turso::{Connection, Value};
 
 use crate::history::{self, Step};
+use crate::text::like_escape;
 use crate::{
-    Activity, ActivityFilter, ActivityId, ActivityKind, Blob, ChangeSet, CompactionReport,
-    Envelope, Error, KeyProvider, LogStats, ObjectId, Order, Query, Result, Retention, Store,
-    StoredObject, Timestamp, UndoState,
+    Activity, ActivityFilter, ActivityId, ActivityKind, Blob, ChangeSet, CompactionReport, Cond,
+    Envelope, Error, KeyProvider, LogEntry, LogStats, ObjectId, Op, Order, Query, Result,
+    Retention, Store, StoredObject, TimeField, Timestamp, UndoState, sort_key,
 };
 
+/// Current schema version (table `schema_version`). 1 = fs-store 0.1 (no version table).
+pub const SCHEMA_VERSION: i64 = 2;
+
 const SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS objects (
     id TEXT PRIMARY KEY,
@@ -39,11 +44,12 @@ CREATE TABLE IF NOT EXISTS objects (
     original BLOB,
     original_type TEXT,
     addressing TEXT NOT NULL,
-    sensitive TEXT NOT NULL
+    sensitive TEXT NOT NULL,
+    describes TEXT,
+    start_time INTEGER,
+    end_time INTEGER,
+    name_sort TEXT NOT NULL DEFAULT ''
 );
-CREATE INDEX IF NOT EXISTS objects_type ON objects (type, updated);
-CREATE INDEX IF NOT EXISTS objects_context ON objects (context);
-CREATE INDEX IF NOT EXISTS objects_attributed ON objects (attributed_to);
 CREATE TABLE IF NOT EXISTS activities (
     id TEXT PRIMARY KEY,
     kind TEXT NOT NULL,
@@ -54,20 +60,33 @@ CREATE TABLE IF NOT EXISTS activities (
     payload TEXT NOT NULL,
     synced INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS activities_actor ON activities (actor, id);
-CREATE INDEX IF NOT EXISTS activities_object ON activities (object_id, id);
-CREATE INDEX IF NOT EXISTS activities_synced ON activities (synced, id);
 CREATE TABLE IF NOT EXISTS index_fields (
     object_id TEXT NOT NULL,
     key TEXT NOT NULL,
-    value TEXT NOT NULL
+    value TEXT NOT NULL,
+    value_norm TEXT NOT NULL DEFAULT ''
 );
+";
+
+/// Indexes (all `IF NOT EXISTS`; run after the tables/columns exist, also by the migration).
+const INDEXES: &str = "
+CREATE INDEX IF NOT EXISTS objects_type ON objects (type, updated);
+CREATE INDEX IF NOT EXISTS objects_context ON objects (context);
+CREATE INDEX IF NOT EXISTS objects_attributed ON objects (attributed_to);
+CREATE INDEX IF NOT EXISTS objects_name_sort ON objects (name_sort);
+CREATE INDEX IF NOT EXISTS objects_start ON objects (start_time);
+CREATE INDEX IF NOT EXISTS objects_end ON objects (end_time);
+CREATE INDEX IF NOT EXISTS objects_describes ON objects (describes);
+CREATE INDEX IF NOT EXISTS activities_actor ON activities (actor, id);
+CREATE INDEX IF NOT EXISTS activities_object ON activities (object_id, id);
+CREATE INDEX IF NOT EXISTS activities_synced ON activities (synced, id);
 CREATE INDEX IF NOT EXISTS index_fields_kv ON index_fields (key, value);
 CREATE INDEX IF NOT EXISTS index_fields_obj ON index_fields (object_id);
 ";
 
 const OBJECT_COLS: &str = "id, iri, type, name, context, attributed_to, in_reply_to, published, updated, \
-                           content_type, content, original, original_type, addressing, sensitive";
+                           content_type, content, original, original_type, addressing, sensitive, \
+                           describes, start_time, end_time, name_sort";
 
 /// Options for opening a [`TursoStore`].
 #[derive(Clone)]
@@ -108,6 +127,7 @@ pub struct TursoStore {
     encrypted: bool,
     allow_sensitive_unencrypted: bool,
     fail_before_activity: AtomicBool,
+    fail_before_extra: AtomicBool,
 }
 
 fn now() -> Timestamp {
@@ -135,6 +155,16 @@ fn int(v: &Value) -> Result<i64> {
         Value::Integer(i) => Ok(*i),
         other => Err(Error::Backend(format!("expected integer, got {other:?}"))),
     }
+}
+fn opt_int(v: &Value) -> Result<Option<i64>> {
+    match v {
+        Value::Null => Ok(None),
+        other => int(other).map(Some),
+    }
+}
+fn opt_ts_val(t: &Option<Timestamp>) -> Value {
+    t.map(|t| Value::Integer(t.timestamp_micros()))
+        .unwrap_or(Value::Null)
 }
 fn opt_text_val(s: &Option<String>) -> Value {
     s.as_ref()
@@ -196,6 +226,9 @@ fn decode_object(row: &[Value]) -> Result<StoredObject> {
             context: opt_text(&row[4])?,
             attributed_to: opt_text(&row[5])?,
             in_reply_to: opt_text(&row[6])?,
+            describes: opt_text(&row[15])?,
+            start_time: opt_int(&row[16])?.map(ts_from_micros).transpose()?,
+            end_time: opt_int(&row[17])?.map(ts_from_micros).transpose()?,
             published: ts_from_micros(int(&row[7])?)?,
             updated: ts_from_micros(int(&row[8])?)?,
             to: get("to"),
@@ -278,7 +311,9 @@ async fn write_object(c: &Connection, o: &StoredObject) -> Result<()> {
     };
     exec(
         c,
-        &format!("INSERT INTO objects ({OBJECT_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"),
+        &format!(
+            "INSERT INTO objects ({OBJECT_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        ),
         vec![
             Value::Text(id.clone()),
             opt_text_val(&e.iri),
@@ -295,6 +330,10 @@ async fn write_object(c: &Connection, o: &StoredObject) -> Result<()> {
             orig_type,
             Value::Text(addressing.to_string()),
             Value::Text(serde_json::to_string(&e.sensitive)?),
+            opt_text_val(&e.describes),
+            opt_ts_val(&e.start_time),
+            opt_ts_val(&e.end_time),
+            Value::Text(sort_key(&e.name)),
         ],
     )
     .await?;
@@ -302,11 +341,12 @@ async fn write_object(c: &Connection, o: &StoredObject) -> Result<()> {
         for v in vals {
             exec(
                 c,
-                "INSERT INTO index_fields (object_id, key, value) VALUES (?,?,?)",
+                "INSERT INTO index_fields (object_id, key, value, value_norm) VALUES (?,?,?,?)",
                 vec![
                     Value::Text(id.clone()),
                     Value::Text(k.clone()),
                     Value::Text(v.clone()),
+                    Value::Text(sort_key(v)),
                 ],
             )
             .await?;
@@ -397,7 +437,86 @@ async fn load_steps(c: &Connection, actor: &str) -> Result<Vec<Step>> {
         .collect()
 }
 
-fn query_where(q: &Query) -> (String, Vec<Value>) {
+fn cmp_sql(op: Op) -> Option<&'static str> {
+    Some(match op {
+        Op::Eq => "=",
+        Op::Gt => ">",
+        Op::Ge => ">=",
+        Op::Lt => "<",
+        Op::Le => "<=",
+        Op::Prefix | Op::Contains => return None,
+    })
+}
+
+/// `LIKE` pattern with escaped needle (for use with `ESCAPE '\'`).
+fn like_pattern(op: Op, needle: &str) -> String {
+    let e = like_escape(needle);
+    if op == Op::Prefix {
+        format!("{e}%")
+    } else {
+        format!("%{e}%")
+    }
+}
+
+/// Condition on a column that holds an already-normalised key (`name_sort`, `value_norm`).
+fn text_cond(col: &str, op: Op, value: &str, p: &mut Vec<Value>) -> String {
+    let key = sort_key(value);
+    match cmp_sql(op) {
+        Some(c) => {
+            p.push(Value::Text(key));
+            format!("{col} {c} ?")
+        }
+        None => {
+            p.push(Value::Text(like_pattern(op, &key)));
+            format!("{col} LIKE ? ESCAPE '\\'")
+        }
+    }
+}
+
+fn cond_sql(c: &Cond, p: &mut Vec<Value>) -> Result<String> {
+    Ok(match c {
+        Cond::Index { key, op, value } => {
+            let mut inner = vec![Value::Text(key.clone())];
+            // Eq and ranges: exact/binary on `value`; Prefix/Contains: normalised.
+            let cond = match op {
+                Op::Prefix | Op::Contains => text_cond("f.value_norm", *op, value, &mut inner),
+                _ => {
+                    inner.push(Value::Text(value.clone()));
+                    format!("f.value {} ?", cmp_sql(*op).expect("comparison"))
+                }
+            };
+            p.extend(inner);
+            format!(
+                "EXISTS (SELECT 1 FROM index_fields f WHERE f.object_id = o.id AND f.key = ? AND {cond})"
+            )
+        }
+        Cond::Name { op, value } => text_cond("o.name_sort", *op, value, p),
+        Cond::Describes { op, value } => {
+            if *op != Op::Eq {
+                return Err(Error::Invalid("describes supports only Op::Eq".into()));
+            }
+            p.push(Value::Text(value.clone()));
+            "o.describes = ?".into()
+        }
+        Cond::Time { field, op, value } => {
+            let col = match field {
+                TimeField::Start => "o.start_time",
+                TimeField::End => "o.end_time",
+                TimeField::Published => "o.published",
+                TimeField::Updated => "o.updated",
+            };
+            let Some(c) = cmp_sql(*op) else {
+                return Err(Error::Invalid(
+                    "Prefix/Contains do not apply to times".into(),
+                ));
+            };
+            p.push(Value::Integer(value.timestamp_micros()));
+            format!("{col} {c} ?")
+        }
+    })
+}
+
+fn query_where(q: &Query) -> Result<(String, Vec<Value>)> {
     let mut clauses: Vec<String> = Vec::new();
     let mut p: Vec<Value> = Vec::new();
     if let Some(t) = &q.object_type {
@@ -419,12 +538,97 @@ fn query_where(q: &Query) -> (String, Vec<Value>) {
         p.push(Value::Text(k.clone()));
         p.push(Value::Text(v.clone()));
     }
+    for c in &q.conds {
+        clauses.push(cond_sql(c, &mut p)?);
+    }
+    if !q.any.is_empty() {
+        let parts = q
+            .any
+            .iter()
+            .map(|c| cond_sql(c, &mut p))
+            .collect::<Result<Vec<_>>>()?;
+        clauses.push(format!("({})", parts.join(" OR ")));
+    }
     let w = if clauses.is_empty() {
         String::new()
     } else {
         format!(" WHERE {}", clauses.join(" AND "))
     };
-    (w, p)
+    Ok((w, p))
+}
+
+/// Bring the database to [`SCHEMA_VERSION`]: create it, or migrate a 0.1 database.
+async fn migrate(c: &Connection) -> Result<()> {
+    let tables: Vec<String> = collect(
+        c,
+        "SELECT name FROM sqlite_master WHERE type = 'table'",
+        vec![],
+    )
+    .await?
+    .iter()
+    .map(|r| text(&r[0]))
+    .collect::<Result<_>>()?;
+    let has = |n: &str| tables.iter().any(|t| t == n);
+    let current = if has("schema_version") {
+        let rows = collect(c, "SELECT MAX(version) FROM schema_version", vec![]).await?;
+        rows.first()
+            .and_then(|r| opt_int(&r[0]).ok().flatten())
+            .unwrap_or(0)
+    } else if has("objects") {
+        1
+    } else {
+        0
+    };
+    if current > SCHEMA_VERSION {
+        return Err(Error::Backend(format!(
+            "database schema version {current} is newer than this fs-store ({SCHEMA_VERSION})"
+        )));
+    }
+    if current == SCHEMA_VERSION {
+        return Ok(());
+    }
+    in_tx(c, async {
+        if current == 0 {
+            c.execute_batch(SCHEMA).await?;
+        } else {
+            // 1 -> 2: first-class envelope fields, normalised sort/search keys.
+            c.execute_batch(
+                "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
+                 ALTER TABLE objects ADD COLUMN describes TEXT;
+                 ALTER TABLE objects ADD COLUMN start_time INTEGER;
+                 ALTER TABLE objects ADD COLUMN end_time INTEGER;
+                 ALTER TABLE objects ADD COLUMN name_sort TEXT NOT NULL DEFAULT '';
+                 ALTER TABLE index_fields ADD COLUMN value_norm TEXT NOT NULL DEFAULT '';",
+            )
+            .await?;
+            for r in collect(c, "SELECT id, name FROM objects", vec![]).await? {
+                exec(
+                    c,
+                    "UPDATE objects SET name_sort = ? WHERE id = ?",
+                    vec![Value::Text(sort_key(&text(&r[1])?)), r[0].clone()],
+                )
+                .await?;
+            }
+            for r in collect(c, "SELECT rowid, value FROM index_fields", vec![]).await? {
+                exec(
+                    c,
+                    "UPDATE index_fields SET value_norm = ? WHERE rowid = ?",
+                    vec![Value::Text(sort_key(&text(&r[1])?)), r[0].clone()],
+                )
+                .await?;
+            }
+        }
+        c.execute_batch(INDEXES).await?;
+        exec(c, "DELETE FROM schema_version", vec![]).await?;
+        exec(
+            c,
+            "INSERT INTO schema_version (version) VALUES (?)",
+            vec![Value::Integer(SCHEMA_VERSION)],
+        )
+        .await?;
+        Ok(())
+    })
+    .await
 }
 
 impl TursoStore {
@@ -467,7 +671,7 @@ impl TursoStore {
         }
         let db = b.build().await?;
         let conn = db.connect()?;
-        conn.execute_batch(SCHEMA).await?;
+        migrate(&conn).await?;
         let last = collect(&conn, "SELECT MAX(id) FROM activities", vec![]).await?;
         let last_activity = match last.first().and_then(|r| r.first()) {
             Some(Value::Text(s)) => Some(s.parse()?),
@@ -484,6 +688,7 @@ impl TursoStore {
             encrypted,
             allow_sensitive_unencrypted: opts.allow_sensitive_unencrypted,
             fail_before_activity: AtomicBool::new(false),
+            fail_before_extra: AtomicBool::new(false),
         })
     }
 
@@ -497,6 +702,18 @@ impl TursoStore {
     #[doc(hidden)]
     pub fn inject_fault_before_activity(&self, on: bool) {
         self.fail_before_activity.store(on, Ordering::SeqCst);
+    }
+
+    /// Test hook: make the next `put_and_log` fail after the `Create`/`Update` entry is written
+    /// but before the extra entries, to prove the whole call rolls back.
+    #[doc(hidden)]
+    pub fn inject_fault_before_extra(&self, on: bool) {
+        self.fail_before_extra.store(on, Ordering::SeqCst);
+    }
+
+    /// Schema version of the open database.
+    pub fn schema_version(&self) -> i64 {
+        SCHEMA_VERSION
     }
 
     fn check_fault(&self) -> Result<()> {
@@ -699,7 +916,23 @@ fn validate(o: &StoredObject) -> Result<()> {
 #[async_trait]
 impl Store for TursoStore {
     async fn put(&self, object: StoredObject, actor: &str) -> Result<Activity> {
+        let mut acts = self.put_and_log(object, actor, vec![]).await?;
+        Ok(acts.remove(0))
+    }
+
+    async fn put_and_log(
+        &self,
+        object: StoredObject,
+        actor: &str,
+        extra: Vec<LogEntry>,
+    ) -> Result<Vec<Activity>> {
         validate(&object)?;
+        if let Some(e) = extra.iter().find(|e| e.kind.changes_state()) {
+            return Err(Error::Invalid(format!(
+                "{} cannot be an extra entry (state-changing kinds come from put/delete/undo/redo)",
+                e.kind.as_str()
+            )));
+        }
         if !object.envelope.sensitive.is_empty()
             && !self.encrypted
             && !self.allow_sensitive_unencrypted
@@ -709,13 +942,15 @@ impl Store for TursoStore {
         let mut inner = self.inner.lock().await;
         let inner = &mut *inner;
         let conn = inner.conn.clone();
-        let act = in_tx(&conn, async {
+        let acts = in_tx(&conn, async {
             let id = object.envelope.id;
             let before = load_object(&inner.conn, id).await?;
             let mut after = object;
             let t = now();
             after.envelope.published = after.envelope.published.trunc_subsecs(6);
             after.envelope.updated = t;
+            after.envelope.start_time = after.envelope.start_time.map(|t| t.trunc_subsecs(6));
+            after.envelope.end_time = after.envelope.end_time.map(|t| t.trunc_subsecs(6));
             let kind = match &before {
                 None => ActivityKind::Create,
                 Some(b) => {
@@ -730,12 +965,50 @@ impl Store for TursoStore {
                     ActivityKind::Update
                 }
             };
-            self.apply(inner, kind, actor, id, None, before, Some(after))
-                .await
+            let first = self
+                .apply(inner, kind, actor, id, None, before, Some(after))
+                .await?;
+            let mut acts = vec![first];
+            if self.fail_before_extra.swap(false, Ordering::SeqCst) {
+                return Err(Error::Backend("injected fault".into()));
+            }
+            for e in extra {
+                let aid = ActivityId::next_after(inner.last_activity);
+                let act = Activity {
+                    id: aid,
+                    kind: e.kind,
+                    object: id,
+                    actor: actor.into(),
+                    at: now(),
+                    target: None,
+                    payload: e.payload,
+                    synced: false,
+                };
+                insert_activity(&inner.conn, &act).await?;
+                inner.last_activity = Some(aid);
+                acts.push(act);
+            }
+            Ok(acts)
         })
-        .await?;
-        self.publish(std::slice::from_ref(&act));
-        Ok(act)
+        .await;
+        match acts {
+            Ok(acts) => {
+                self.publish(&acts);
+                Ok(acts)
+            }
+            Err(e) => {
+                // last_activity may have advanced inside the rolled-back transaction: re-read it.
+                if let Ok(rows) =
+                    collect(&inner.conn, "SELECT MAX(id) FROM activities", vec![]).await
+                {
+                    inner.last_activity = match rows.first().and_then(|r| r.first()) {
+                        Some(Value::Text(s)) => s.parse().ok(),
+                        _ => None,
+                    };
+                }
+                Err(e)
+            }
+        }
     }
 
     async fn get(&self, id: ObjectId) -> Result<Option<StoredObject>> {
@@ -769,13 +1042,16 @@ impl Store for TursoStore {
 
     async fn query(&self, q: &Query) -> Result<Vec<StoredObject>> {
         let inner = self.inner.lock().await;
-        let (w, mut p) = query_where(q);
+        let (w, mut p) = query_where(q)?;
         let order = match q.order {
             Order::UpdatedDesc => "o.updated DESC, o.id DESC",
             Order::UpdatedAsc => "o.updated ASC, o.id ASC",
             Order::PublishedAsc => "o.published ASC, o.id ASC",
             Order::PublishedDesc => "o.published DESC, o.id DESC",
-            Order::NameAsc => "o.name ASC, o.id ASC",
+            Order::NameAsc => "o.name_sort ASC, o.name ASC, o.id ASC",
+            Order::NameDesc => "o.name_sort DESC, o.name DESC, o.id DESC",
+            Order::StartAsc => "COALESCE(o.start_time, 9223372036854775807) ASC, o.id ASC",
+            Order::StartDesc => "COALESCE(o.start_time, -9223372036854775807) DESC, o.id DESC",
         };
         let cols = OBJECT_COLS
             .split(", ")
@@ -802,7 +1078,7 @@ impl Store for TursoStore {
 
     async fn count(&self, q: &Query) -> Result<usize> {
         let inner = self.inner.lock().await;
-        let (w, p) = query_where(q);
+        let (w, p) = query_where(q)?;
         let rows = collect(
             &inner.conn,
             &format!("SELECT COUNT(*) FROM objects o{w}"),

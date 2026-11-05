@@ -17,10 +17,63 @@ pub enum Order {
     UpdatedAsc,
     PublishedAsc,
     PublishedDesc,
+    /// Case-insensitive, Unicode-normalised name order (see [`crate::sort_key`]); ties by id.
     NameAsc,
+    NameDesc,
+    /// By envelope `start_time`; objects without one come last.
+    StartAsc,
+    /// By envelope `start_time`, latest first; objects without one come last.
+    StartDesc,
 }
 
-/// Object query. All set filters are AND-ed. Full-text search is not part of v0.1.
+/// Comparison of a [`Cond`].
+///
+/// * `Eq`, `Gt`, `Ge`, `Lt`, `Le`: for index fields compared as **binary text** on the stored value
+///   (ISO-8601 UTC strings therefore order chronologically); for time fields as instants;
+///   for the name on the normalised sort key.
+/// * `Prefix`, `Contains`: **case-insensitive and Unicode-normalised** (both sides go through
+///   [`crate::sort_key`]), implemented with `LIKE ... ESCAPE '\'`, so `%`, `_` and `\` in the
+///   needle are literals. Not available for time fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Op {
+    Eq,
+    Gt,
+    Ge,
+    Lt,
+    Le,
+    Prefix,
+    Contains,
+}
+
+/// Envelope time field usable in a [`Cond::Time`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TimeField {
+    Start,
+    End,
+    Published,
+    Updated,
+}
+
+/// One filter condition.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Cond {
+    /// Some value of the index field `key` satisfies `op value`.
+    Index { key: String, op: Op, value: String },
+    /// The envelope name (compared on its normalised sort key).
+    Name { op: Op, value: String },
+    /// Envelope `describes` (exact for `Eq`, otherwise as `Op` documents).
+    Describes { op: Op, value: String },
+    /// An envelope timestamp. Objects with no value for the field never match.
+    Time {
+        field: TimeField,
+        op: Op,
+        value: Timestamp,
+    },
+}
+
+/// Object query. All set filters are AND-ed; `any` is an OR-group that is AND-ed with the rest
+/// (empty = no constraint). Full-text search (tokenised) is not provided; use `Cond` with
+/// `Op::Contains` / `Op::Prefix`.
 #[derive(Clone, Debug, Default)]
 pub struct Query {
     pub object_type: Option<String>,
@@ -28,6 +81,10 @@ pub struct Query {
     pub attributed_to: Option<String>,
     /// `(key, value)` pairs that must all be present in the object's index fields.
     pub index: Vec<(String, String)>,
+    /// Further conditions, all of which must hold (0.2).
+    pub conds: Vec<Cond>,
+    /// At least one of these must hold, if non-empty (0.2); e.g. a search over name, e-mail, phone.
+    pub any: Vec<Cond>,
     pub order: Order,
     pub limit: Option<usize>,
     pub offset: usize,
@@ -53,6 +110,53 @@ impl Query {
         self.index.push((key.into(), value.into()));
         self
     }
+    /// Add a condition that must hold.
+    pub fn and(mut self, c: Cond) -> Self {
+        self.conds.push(c);
+        self
+    }
+    /// Add a condition to the OR-group.
+    pub fn or(mut self, c: Cond) -> Self {
+        self.any.push(c);
+        self
+    }
+    /// Index field `key` has a value satisfying `op value`.
+    pub fn index_op(self, key: impl Into<String>, op: Op, value: impl Into<String>) -> Self {
+        self.and(Cond::Index {
+            key: key.into(),
+            op,
+            value: value.into(),
+        })
+    }
+    /// Index field `key` has a value in `[from, to)` (binary text order).
+    pub fn index_between(
+        self,
+        key: impl Into<String>,
+        from: impl Into<String>,
+        to: impl Into<String>,
+    ) -> Self {
+        let key = key.into();
+        self.index_op(key.clone(), Op::Ge, from)
+            .index_op(key, Op::Lt, to)
+    }
+    /// Envelope time condition.
+    pub fn time(self, field: TimeField, op: Op, value: Timestamp) -> Self {
+        self.and(Cond::Time { field, op, value })
+    }
+    /// Case-insensitive substring in the name.
+    pub fn name_contains(self, v: impl Into<String>) -> Self {
+        self.and(Cond::Name {
+            op: Op::Contains,
+            value: v.into(),
+        })
+    }
+    /// Case-insensitive name prefix.
+    pub fn name_prefix(self, v: impl Into<String>) -> Self {
+        self.and(Cond::Name {
+            op: Op::Prefix,
+            value: v.into(),
+        })
+    }
     pub fn ordered(mut self, o: Order) -> Self {
         self.order = o;
         self
@@ -64,6 +168,19 @@ impl Query {
     pub fn offset(mut self, n: usize) -> Self {
         self.offset = n;
         self
+    }
+}
+
+/// An additional log-only activity for [`Store::put_and_log`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct LogEntry {
+    pub kind: ActivityKind,
+    pub payload: serde_json::Value,
+}
+
+impl LogEntry {
+    pub fn new(kind: ActivityKind, payload: serde_json::Value) -> Self {
+        Self { kind, payload }
     }
 }
 
@@ -144,6 +261,18 @@ pub trait Store: Send + Sync {
     /// Writes object + `Create`/`Update` activity in one transaction.
     async fn put(&self, object: StoredObject, actor: &str) -> Result<Activity>;
 
+    /// Like [`Store::put`], and append further log-only activities (e.g. `Accept` /
+    /// `TentativeAccept` / `Reject` for an invitation reply) **in the same transaction**: all or
+    /// nothing. The extra entries refer to the same object and actor and follow the
+    /// `Create`/`Update` entry in log order. Returns `Create`/`Update` first, then the extras.
+    /// State-changing kinds are refused as extras.
+    async fn put_and_log(
+        &self,
+        object: StoredObject,
+        actor: &str,
+        extra: Vec<LogEntry>,
+    ) -> Result<Vec<Activity>>;
+
     async fn get(&self, id: ObjectId) -> Result<Option<StoredObject>>;
 
     /// Delete an object, writing a `Delete` activity (carrying the old image so it can be undone).
@@ -154,7 +283,7 @@ pub trait Store: Send + Sync {
     /// Number of objects matching the query's filters (limit/offset ignored).
     async fn count(&self, query: &Query) -> Result<usize>;
 
-    /// Append a log-only activity (`Add`, `Remove`, `Offer`, `Accept`, `Reject`, `Read`).
+    /// Append a log-only activity (`Add`, `Remove`, `Offer`, `Invite`, `Accept`, `TentativeAccept`, `Reject`, `Read`, `Join`, `Leave`, `Like`, `Move`).
     /// State-changing kinds are produced by put/delete/undo/redo only.
     async fn log(
         &self,

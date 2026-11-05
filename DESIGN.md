@@ -5,7 +5,7 @@ they use the `Store` trait. The first backend is `TursoStore` (embedded `turso` 
 
 ## State
 
-Version 0.1.0 (local only, never pushed; the GitHub repo of the same name is the unrelated old one).
+Version 0.2.0 (local only, never pushed; the GitHub repo of the same name is the unrelated old one).
 
 | Area | State |
 |---|---|
@@ -13,8 +13,13 @@ Version 0.1.0 (local only, never pushed; the GitHub repo of the same name is the
 | `Store` trait (async, `async-trait`, object-safe) | done |
 | `TursoStore` (file or in-memory) | done, `turso = "=0.8.3"` pinned (default features off: no mimalloc, no tantivy FTS) |
 | Atomic object change + activity | done, one `BEGIN IMMEDIATE` transaction; rollback test via fault injection |
-| Query by type / context / attributed_to / index fields, order, limit, offset, count | done |
-| Full-text search | **not yet** (Turso has an experimental tantivy-based `fts` feature, not enabled) |
+| `put_and_log(object, actor, extra)` (0.2) | done: `Create`/`Update` plus any number of log-only extras (`Accept`, `TentativeAccept`, ...) in one transaction; fault-injection test (`inject_fault_before_extra`) proves all-or-nothing, nothing published on failure |
+| `ActivityKind` (0.2) | added `Invite`, `TentativeAccept`, `Join`, `Leave`, `Like`, `Move` (log-only); stored as the plain string name, so 0.1 data reads unchanged |
+| Query (0.2) | type / context / attributed_to / exact index pairs (as before) plus `Cond` filters: `Op::{Eq,Gt,Ge,Lt,Le,Prefix,Contains}` on index fields, name, `describes` (Eq only) and envelope times (`start`/`end`/`published`/`updated`); `any` = OR-group, everything AND-ed; `limit`/`offset`/`count` unchanged |
+| Ordering (0.2) | `NameAsc/NameDesc` case-insensitive and Unicode-normalised via `name_sort`; `StartAsc/StartDesc` (undated last) |
+| Envelope (0.2) | optional `describes` (AS2 Profile), `start_time`/`end_time` (AS2 `startTime`/`endTime`) as columns |
+| Schema versioning (0.2) | table `schema_version`; version 2 now; a 0.1 database (no table) is migrated in one transaction on open (ALTER + backfill of sort keys); a newer database is refused. Migration test builds a verbatim 0.1 file |
+| Full-text search | substring/prefix only (below); tokenised FTS **not yet** (Turso's tantivy-based `fts` feature is not enabled) |
 | Change stream (`subscribe`) | done: `tokio::sync::broadcast<Activity>`, sent after commit |
 | Undo / redo per actor | done, persistent, survives restart |
 | Retention (`max_age`, `max_steps`), `compact()`, `clear_history()`, `mark_synced()` | done |
@@ -22,7 +27,7 @@ Version 0.1.0 (local only, never pushed; the GitHub repo of the same name is the
 | Sensitive data (ADR 0029) | envelope carries DPV categories; unencrypted store refuses sensitive objects unless opted out. No auto-link logic here (hub concern) |
 | Hub sync | only the data side: `activities(unsynced_only / after)` + `mark_synced`. No IPC (belongs to fs-hub) |
 | Remote (HTTPS) backend | not started; trait is backend-neutral |
-| Tests | integration (temp dirs, in-memory), property tests (model-based undo/redo, compaction invariants), unit tests for the stack logic |
+| Tests | 36: integration (temp dirs, in-memory; 19 + 12 new in `tests/v02.rs`), property tests (model-based undo/redo, compaction invariants), unit tests for the stack logic and `sort_key` |
 | Example | `cargo run -p fs-store --example contacts` imports the demo contacts (`Profile`) and events (`Event`) |
 
 ## Object model (ADR 0020, 0030, 0032)
@@ -39,12 +44,28 @@ Version 0.1.0 (local only, never pushed; the GitHub repo of the same name is the
 
 ## Schema (Turso)
 
+* `schema_version(version)` - one row, currently 2 (1 = 0.1, which had no table).
 * `objects(id PK, iri, type, name, context, attributed_to, in_reply_to, published, updated, content_type, content JSON,
-  original BLOB, original_type, addressing JSON, sensitive JSON)`
+  original BLOB, original_type, addressing JSON, sensitive JSON, describes, start_time, end_time, name_sort)`
 * `activities(id PK UUIDv7, kind, object_id, actor, at, target, payload JSON, synced)` - append-only except for compaction
   and the `synced` flag.
-* `index_fields(object_id, key, value)` - multi-valued extracted columns (emails, phones, uid, ...).
+* `index_fields(object_id, key, value, value_norm)` - multi-valued extracted columns (emails, phones, uid, ...); `value_norm` is the search key.
 * `meta(key, value)` - retention policy.
+
+## Search, ranges and ordering (0.2)
+
+* **Sort/search key** `sort_key(s)` = NFC, `to_lowercase()` (full Unicode, not ASCII-only), NFC again. Computed in Rust and stored
+  (`objects.name_sort`, `index_fields.value_norm`) because the SQL engine only folds ASCII. Consequences: ordering is by code point of
+  that key, not a locale collation (`Ärger` sorts after `Zebra`; `ß` is not `ss`); precomposed and decomposed forms are equal.
+  Changing the key function later needs a reindex migration (schema version bump).
+* `Prefix` / `Contains` run `LIKE ? ESCAPE '\'` on the key column with `\`, `%`, `_` escaped in the needle (tested). They are
+  scans (no index helps `%x%`).
+* `Gt/Ge/Lt/Le` on index fields compare the **raw stored text, binary**: store ISO-8601 UTC strings (`2026-03-01T09:00:00Z`) and
+  they order chronologically. Envelope times are integers (microseconds), compared as instants; a missing value never matches.
+* `start_time`/`end_time` in the envelope are indexed columns; "events overlapping `[from, to)`" is
+  `start < to AND end > from`. The store does not interpret them (a recurring series sets `end_time` to its last end, or a far-future
+  sentinel if unbounded; that is the domain crate's call).
+* `describes` supports `Eq` only.
 
 ## Activity log and undo (ADR 0020, 0042)
 
@@ -52,7 +73,8 @@ Version 0.1.0 (local only, never pushed; the GitHub repo of the same name is the
 * Payload of `Create/Update/Delete/Undo` is a `ChangeSet {before, after}` (full images). `after` is what the hub applies;
   both images make undo possible without replaying. The original is included only when the change creates or removes the
   object (it never changes, so copying it into every update would waste space).
-* Log-only kinds (`Add, Remove, Offer, Accept, Reject, Read`) are written with `Store::log`; they carry a caller payload and
+* Log-only kinds (`Add, Remove, Offer, Invite, Accept, TentativeAccept, Reject, Read, Join, Leave, Like, Move`) are written with `Store::log`
+  or, together with an object change, `Store::put_and_log`; they carry a caller payload and
   are not undoable. No RFC 6902 patch is generated: the images carry the same information.
 * **Undo** reverts the last `n` undoable activities of one actor, newest first, atomically, and appends an `Undo` activity
   (`target` = reverted activity). **Redo** is an `Undo` of that `Undo` (pure AS2). New work by the actor clears the redo
@@ -100,7 +122,10 @@ multi-process mode is experimental and not used: one process owns one database f
 
 ## Open points
 
-* Full-text search (Turso FTS or own index table).
+* Tokenised full-text search / relevance ranking (Turso FTS or own index table); locale collation (CLDR) for ordering.
+* `describes` is exact-match only; `location` (AS2) is not an envelope field yet.
+* A 0.1 database is migrated without `start_time`/`end_time`: domain crates must rewrite those objects to fill them.
+* Delete/undo failures can leave a gap in activity ids (harmless; `put_and_log` re-reads the last id after a rollback).
 * Remote backend over JSON/HTTPS.
 * Tombstones for synced+compacted deletes if the hub needs them later (ADR 0020 open detail).
 * Whether `max_steps` should count per actor instead of globally.

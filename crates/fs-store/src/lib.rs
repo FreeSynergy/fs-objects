@@ -10,6 +10,7 @@ mod error;
 pub mod history;
 mod model;
 mod store;
+mod text;
 mod turso_store;
 
 pub use crypto::{Cipher, EncryptionKey, KeyProvider, StaticKeyProvider};
@@ -19,6 +20,8 @@ pub use model::{
     ObjectId, StoredObject, Timestamp,
 };
 pub use store::{
-    ActivityFilter, CompactionReport, LogStats, Order, Query, Retention, Store, UndoState,
+    ActivityFilter, CompactionReport, Cond, LogEntry, LogStats, Op, Order, Query, Retention, Store,
+    TimeField, UndoState,
 };
+pub use text::sort_key;
 pub use turso_store::{OpenOptions, TursoStore};

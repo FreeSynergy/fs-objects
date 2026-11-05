@@ -131,6 +131,16 @@ pub struct Envelope {
     pub context: Option<String>,
     #[serde(default, rename = "inReplyTo", skip_serializing_if = "Option::is_none")]
     pub in_reply_to: Option<String>,
+    /// AS2 `Profile.describes`: the IRI of the thing/person this profile describes (0.2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub describes: Option<String>,
+    /// AS2 `Event.startTime` as UTC instant (0.2). For recurring series: first instance.
+    #[serde(default, rename = "startTime", skip_serializing_if = "Option::is_none")]
+    pub start_time: Option<Timestamp>,
+    /// AS2 `Event.endTime` as UTC instant (0.2). For recurring series: end of the last instance
+    /// (the caller decides what an unbounded series uses).
+    #[serde(default, rename = "endTime", skip_serializing_if = "Option::is_none")]
+    pub end_time: Option<Timestamp>,
     /// DPV categories of sensitive data in this object (ADR 0029).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sensitive: Vec<DpvCategory>,
@@ -155,6 +165,9 @@ impl Envelope {
             updated: now,
             context: None,
             in_reply_to: None,
+            describes: None,
+            start_time: None,
+            end_time: None,
             sensitive: vec![],
         }
     }
@@ -251,6 +264,18 @@ pub enum ActivityKind {
     Reject,
     Undo,
     Read,
+    /// AS2 `Invite` (subtype of `Offer`), e.g. event invitation. Log-only.
+    Invite,
+    /// AS2 `TentativeAccept` (subtype of `Accept`). Log-only.
+    TentativeAccept,
+    /// AS2 `Join`. Log-only (reserved for later use).
+    Join,
+    /// AS2 `Leave`. Log-only (reserved for later use).
+    Leave,
+    /// AS2 `Like`. Log-only (reserved for later use).
+    Like,
+    /// AS2 `Move`. Log-only (reserved for later use).
+    Move,
 }
 
 impl ActivityKind {
@@ -267,6 +292,12 @@ impl ActivityKind {
             Self::Reject => "Reject",
             Self::Undo => "Undo",
             Self::Read => "Read",
+            Self::Invite => "Invite",
+            Self::TentativeAccept => "TentativeAccept",
+            Self::Join => "Join",
+            Self::Leave => "Leave",
+            Self::Like => "Like",
+            Self::Move => "Move",
         }
     }
     /// Kinds that change object state (and can be undone).
@@ -292,6 +323,12 @@ impl FromStr for ActivityKind {
             "Reject" => Self::Reject,
             "Undo" => Self::Undo,
             "Read" => Self::Read,
+            "Invite" => Self::Invite,
+            "TentativeAccept" => Self::TentativeAccept,
+            "Join" => Self::Join,
+            "Leave" => Self::Leave,
+            "Like" => Self::Like,
+            "Move" => Self::Move,
             other => return Err(Error::Invalid(format!("unknown activity kind {other}"))),
         })
     }
