@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = ["crates/fs-store"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/FreeSynergy/fs-store"
+rust-version = "1.85"
