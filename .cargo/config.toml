@@ -1,0 +1,12 @@
+# ADR 0041: keep debug output small
+[profile.dev]
+debug = "line-tables-only"      # enough for backtraces, a fraction of full debug info
+incremental = true
+
+[profile.dev.package."*"]
+debug = false                    # no debug info for dependencies
+
+[profile.release]
+debug = false
+strip = "symbols"
+lto = "thin"

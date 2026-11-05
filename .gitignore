@@ -1,0 +1,19 @@
+# Rust build output and caches — never in Git (ADR 0041)
+/target/
+**/target/
+*.rs.bk
+*.pdb
+*.dSYM/
+# profiling / coverage leftovers
+*.profraw
+*.profdata
+perf.data*
+flamegraph*.svg
+# editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+# local secrets (crates.io token etc. live in ~/.cargo, never here)
+.env
