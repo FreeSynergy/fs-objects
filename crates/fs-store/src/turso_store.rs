@@ -17,9 +17,9 @@ use turso::{Connection, Value};
 
 use crate::history::{self, Step};
 use crate::{
-    Activity, ActivityFilter, ActivityId, ActivityKind, Blob, ChangeSet, CompactionReport, Envelope, Error,
-    KeyProvider, LogStats, ObjectId, Order, Query, Result, Retention, Store, StoredObject, Timestamp,
-    UndoState,
+    Activity, ActivityFilter, ActivityId, ActivityKind, Blob, ChangeSet, CompactionReport,
+    Envelope, Error, KeyProvider, LogStats, ObjectId, Order, Query, Result, Retention, Store,
+    StoredObject, Timestamp, UndoState,
 };
 
 const SCHEMA: &str = "
@@ -137,7 +137,9 @@ fn int(v: &Value) -> Result<i64> {
     }
 }
 fn opt_text_val(s: &Option<String>) -> Value {
-    s.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null)
+    s.as_ref()
+        .map(|s| Value::Text(s.clone()))
+        .unwrap_or(Value::Null)
 }
 
 async fn collect(c: &Connection, sql: &str, params: Vec<Value>) -> Result<Vec<Vec<Value>>> {
@@ -213,7 +215,10 @@ fn decode_object(row: &[Value]) -> Result<StoredObject> {
 async fn attach_index(c: &Connection, objs: &mut [StoredObject]) -> Result<()> {
     for chunk in objs.chunks_mut(200) {
         let ph = vec!["?"; chunk.len()].join(",");
-        let params = chunk.iter().map(|o| Value::Text(o.envelope.id.to_string())).collect();
+        let params = chunk
+            .iter()
+            .map(|o| Value::Text(o.envelope.id.to_string()))
+            .collect();
         let rows = collect(
             c,
             &format!("SELECT object_id, key, value FROM index_fields WHERE object_id IN ({ph}) ORDER BY rowid"),
@@ -237,7 +242,9 @@ async fn load_object(c: &Connection, id: ObjectId) -> Result<Option<StoredObject
         vec![Value::Text(id.to_string())],
     )
     .await?;
-    let Some(r) = rows.first() else { return Ok(None) };
+    let Some(r) = rows.first() else {
+        return Ok(None);
+    };
     let mut v = [decode_object(r)?];
     attach_index(c, &mut v).await?;
     let [o] = v;
@@ -247,13 +254,26 @@ async fn load_object(c: &Connection, id: ObjectId) -> Result<Option<StoredObject
 async fn write_object(c: &Connection, o: &StoredObject) -> Result<()> {
     let e = &o.envelope;
     let id = e.id.to_string();
-    exec(c, "DELETE FROM objects WHERE id = ?", vec![Value::Text(id.clone())]).await?;
-    exec(c, "DELETE FROM index_fields WHERE object_id = ?", vec![Value::Text(id.clone())]).await?;
+    exec(
+        c,
+        "DELETE FROM objects WHERE id = ?",
+        vec![Value::Text(id.clone())],
+    )
+    .await?;
+    exec(
+        c,
+        "DELETE FROM index_fields WHERE object_id = ?",
+        vec![Value::Text(id.clone())],
+    )
+    .await?;
     let addressing = serde_json::json!({
         "to": e.to, "cc": e.cc, "bto": e.bto, "bcc": e.bcc, "audience": e.audience
     });
     let (orig, orig_type) = match &o.original {
-        Some(b) => (Value::Blob(b.bytes.clone()), Value::Text(b.media_type.clone())),
+        Some(b) => (
+            Value::Blob(b.bytes.clone()),
+            Value::Text(b.media_type.clone()),
+        ),
         None => (Value::Null, Value::Null),
     };
     exec(
@@ -283,7 +303,11 @@ async fn write_object(c: &Connection, o: &StoredObject) -> Result<()> {
             exec(
                 c,
                 "INSERT INTO index_fields (object_id, key, value) VALUES (?,?,?)",
-                vec![Value::Text(id.clone()), Value::Text(k.clone()), Value::Text(v.clone())],
+                vec![
+                    Value::Text(id.clone()),
+                    Value::Text(k.clone()),
+                    Value::Text(v.clone()),
+                ],
             )
             .await?;
         }
@@ -293,8 +317,18 @@ async fn write_object(c: &Connection, o: &StoredObject) -> Result<()> {
 
 async fn remove_object(c: &Connection, id: ObjectId) -> Result<()> {
     let id = id.to_string();
-    exec(c, "DELETE FROM objects WHERE id = ?", vec![Value::Text(id.clone())]).await?;
-    exec(c, "DELETE FROM index_fields WHERE object_id = ?", vec![Value::Text(id)]).await?;
+    exec(
+        c,
+        "DELETE FROM objects WHERE id = ?",
+        vec![Value::Text(id.clone())],
+    )
+    .await?;
+    exec(
+        c,
+        "DELETE FROM index_fields WHERE object_id = ?",
+        vec![Value::Text(id)],
+    )
+    .await?;
     Ok(())
 }
 
@@ -333,7 +367,9 @@ async fn insert_activity(c: &Connection, a: &Activity) -> Result<()> {
             Value::Text(a.object.to_string()),
             Value::Text(a.actor.clone()),
             Value::Integer(a.at.timestamp_micros()),
-            a.target.map(|t| Value::Text(t.to_string())).unwrap_or(Value::Null),
+            a.target
+                .map(|t| Value::Text(t.to_string()))
+                .unwrap_or(Value::Null),
             Value::Text(a.payload.to_string()),
             Value::Integer(a.synced as i64),
         ],
@@ -383,7 +419,11 @@ fn query_where(q: &Query) -> (String, Vec<Value>) {
         p.push(Value::Text(k.clone()));
         p.push(Value::Text(v.clone()));
     }
-    let w = if clauses.is_empty() { String::new() } else { format!(" WHERE {}", clauses.join(" AND ")) };
+    let w = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", clauses.join(" AND "))
+    };
     (w, p)
 }
 
@@ -395,14 +435,19 @@ impl TursoStore {
 
     /// Open with options (encryption, sensitive-data policy).
     pub async fn open_with(path: impl AsRef<Path>, opts: OpenOptions) -> Result<Self> {
-        let p = path.as_ref().to_str().ok_or_else(|| Error::Invalid("path is not UTF-8".into()))?;
+        let p = path
+            .as_ref()
+            .to_str()
+            .ok_or_else(|| Error::Invalid("path is not UTF-8".into()))?;
         Self::open_raw(p, opts).await
     }
 
     /// Volatile in-memory store (tests, caches).
     pub async fn open_in_memory() -> Result<Self> {
-        let mut o = OpenOptions::default();
-        o.allow_sensitive_unencrypted = true;
+        let o = OpenOptions {
+            allow_sensitive_unencrypted: true,
+            ..OpenOptions::default()
+        };
         Self::open_raw(":memory:", o).await
     }
 
@@ -412,10 +457,12 @@ impl TursoStore {
         if let Some(kp) = &opts.key_provider {
             let key = kp.key_for(&opts.store_name)?;
             key.validate()?;
-            b = b.experimental_encryption(true).with_encryption(turso::EncryptionOpts {
-                cipher: key.cipher.turso_name().into(),
-                hexkey: key.hex(),
-            });
+            b = b
+                .experimental_encryption(true)
+                .with_encryption(turso::EncryptionOpts {
+                    cipher: key.cipher.turso_name().into(),
+                    hexkey: key.hex(),
+                });
             encrypted = true;
         }
         let db = b.build().await?;
@@ -429,7 +476,10 @@ impl TursoStore {
         let (tx, _) = broadcast::channel(opts.subscribe_capacity.max(1));
         Ok(Self {
             _db: db,
-            inner: Mutex::new(Inner { conn, last_activity }),
+            inner: Mutex::new(Inner {
+                conn,
+                last_activity,
+            }),
             tx,
             encrypted,
             allow_sensitive_unencrypted: opts.allow_sensitive_unencrypted,
@@ -507,7 +557,10 @@ impl TursoStore {
             _ => false,
         };
         if !consistent {
-            return Err(Error::Conflict(format!("object {} changed since activity {x_id}", x.object)));
+            return Err(Error::Conflict(format!(
+                "object {} changed since activity {x_id}",
+                x.object
+            )));
         }
         let mut restored = cs.before;
         if let (Some(r), Some(c)) = (restored.as_mut(), current.as_ref()) {
@@ -515,7 +568,16 @@ impl TursoStore {
                 r.original = c.original.clone();
             }
         }
-        self.apply(inner, ActivityKind::Undo, actor, x.object, Some(x_id), current, restored).await
+        self.apply(
+            inner,
+            ActivityKind::Undo,
+            actor,
+            x.object,
+            Some(x_id),
+            current,
+            restored,
+        )
+        .await
     }
 
     async fn step_back(&self, actor: &str, n: usize, redo: bool) -> Result<Vec<Activity>> {
@@ -526,7 +588,11 @@ impl TursoStore {
             let mut done = Vec::new();
             for _ in 0..n {
                 let stacks = history::compute(&load_steps(&inner.conn, actor).await?);
-                let target = if redo { stacks.redo.last().map(|(_, u)| *u) } else { stacks.undo.last().copied() };
+                let target = if redo {
+                    stacks.redo.last().map(|(_, u)| *u)
+                } else {
+                    stacks.undo.last().copied()
+                };
                 let Some(t) = target else { break };
                 done.push(self.revert(inner, t, actor).await?);
             }
@@ -537,7 +603,12 @@ impl TursoStore {
         Ok(done)
     }
 
-    async fn compact_with(&self, r: Retention, now: Timestamp, everything: bool) -> Result<CompactionReport> {
+    async fn compact_with(
+        &self,
+        r: Retention,
+        now: Timestamp,
+        everything: bool,
+    ) -> Result<CompactionReport> {
         let inner = self.inner.lock().await;
         let c = &inner.conn;
         in_tx(c, async {
@@ -555,9 +626,15 @@ impl TursoStore {
                 bump(rows.first().and_then(|r| opt_text(&r[0]).ok().flatten()));
             }
             if let Some(age) = r.max_age {
-                let age = ChronoDuration::from_std(age).map_err(|e| Error::Invalid(e.to_string()))?;
+                let age =
+                    ChronoDuration::from_std(age).map_err(|e| Error::Invalid(e.to_string()))?;
                 let cutoff = (now - age).timestamp_micros();
-                let rows = collect(c, "SELECT MAX(id) FROM activities WHERE at < ?", vec![Value::Integer(cutoff)]).await?;
+                let rows = collect(
+                    c,
+                    "SELECT MAX(id) FROM activities WHERE at < ?",
+                    vec![Value::Integer(cutoff)],
+                )
+                .await?;
                 bump(rows.first().and_then(|r| opt_text(&r[0]).ok().flatten()));
             }
             if let Some(steps) = r.max_steps {
@@ -572,8 +649,12 @@ impl TursoStore {
             let mut removed = 0;
             let mut kept_unsynced = 0;
             if let Some(cut) = cut {
-                removed = exec(c, "DELETE FROM activities WHERE synced = 1 AND id <= ?", vec![Value::Text(cut.clone())])
-                    .await? as usize;
+                removed = exec(
+                    c,
+                    "DELETE FROM activities WHERE synced = 1 AND id <= ?",
+                    vec![Value::Text(cut.clone())],
+                )
+                .await? as usize;
                 let rows = collect(
                     c,
                     "SELECT COUNT(*) FROM activities WHERE synced = 0 AND id <= ?",
@@ -583,7 +664,11 @@ impl TursoStore {
                 kept_unsynced = int(&rows[0][0])? as usize;
             }
             let rows = collect(c, "SELECT COUNT(*) FROM activities", vec![]).await?;
-            Ok(CompactionReport { removed, kept_unsynced, remaining: int(&rows[0][0])? as usize })
+            Ok(CompactionReport {
+                removed,
+                kept_unsynced,
+                remaining: int(&rows[0][0])? as usize,
+            })
         })
         .await
     }
@@ -591,7 +676,9 @@ impl TursoStore {
 
 fn validate(o: &StoredObject) -> Result<()> {
     if o.envelope.name.trim().is_empty() {
-        return Err(Error::Invalid("envelope.name must not be empty (ADR 0032)".into()));
+        return Err(Error::Invalid(
+            "envelope.name must not be empty (ADR 0032)".into(),
+        ));
     }
     if o.envelope.object_type.trim().is_empty() {
         return Err(Error::Invalid("envelope.type must not be empty".into()));
@@ -601,7 +688,9 @@ fn validate(o: &StoredObject) -> Result<()> {
     }
     for (k, v) in &o.index {
         if k.is_empty() || v.iter().any(|x| x.is_empty()) {
-            return Err(Error::Invalid("index keys and values must not be empty".into()));
+            return Err(Error::Invalid(
+                "index keys and values must not be empty".into(),
+            ));
         }
     }
     Ok(())
@@ -611,7 +700,10 @@ fn validate(o: &StoredObject) -> Result<()> {
 impl Store for TursoStore {
     async fn put(&self, object: StoredObject, actor: &str) -> Result<Activity> {
         validate(&object)?;
-        if !object.envelope.sensitive.is_empty() && !self.encrypted && !self.allow_sensitive_unencrypted {
+        if !object.envelope.sensitive.is_empty()
+            && !self.encrypted
+            && !self.allow_sensitive_unencrypted
+        {
             return Err(Error::EncryptionRequired(object.envelope.id));
         }
         let mut inner = self.inner.lock().await;
@@ -638,7 +730,8 @@ impl Store for TursoStore {
                     ActivityKind::Update
                 }
             };
-            self.apply(inner, kind, actor, id, None, before, Some(after)).await
+            self.apply(inner, kind, actor, id, None, before, Some(after))
+                .await
         })
         .await?;
         self.publish(std::slice::from_ref(&act));
@@ -655,8 +748,19 @@ impl Store for TursoStore {
         let inner = &mut *inner;
         let conn = inner.conn.clone();
         let act = in_tx(&conn, async {
-            let before = load_object(&inner.conn, id).await?.ok_or(Error::NotFound(id))?;
-            self.apply(inner, ActivityKind::Delete, actor, id, None, Some(before), None).await
+            let before = load_object(&inner.conn, id)
+                .await?
+                .ok_or(Error::NotFound(id))?;
+            self.apply(
+                inner,
+                ActivityKind::Delete,
+                actor,
+                id,
+                None,
+                Some(before),
+                None,
+            )
+            .await
         })
         .await?;
         self.publish(std::slice::from_ref(&act));
@@ -673,8 +777,14 @@ impl Store for TursoStore {
             Order::PublishedDesc => "o.published DESC, o.id DESC",
             Order::NameAsc => "o.name ASC, o.id ASC",
         };
-        let cols = OBJECT_COLS.split(", ").map(|c| format!("o.{c}")).collect::<Vec<_>>().join(", ");
-        p.push(Value::Integer(q.limit.map(|l| l as i64).unwrap_or(i64::MAX)));
+        let cols = OBJECT_COLS
+            .split(", ")
+            .map(|c| format!("o.{c}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        p.push(Value::Integer(
+            q.limit.map(|l| l as i64).unwrap_or(i64::MAX),
+        ));
         p.push(Value::Integer(q.offset as i64));
         let rows = collect(
             &inner.conn,
@@ -682,7 +792,10 @@ impl Store for TursoStore {
             p,
         )
         .await?;
-        let mut objs = rows.iter().map(|r| decode_object(r)).collect::<Result<Vec<_>>>()?;
+        let mut objs = rows
+            .iter()
+            .map(|r| decode_object(r))
+            .collect::<Result<Vec<_>>>()?;
         attach_index(&inner.conn, &mut objs).await?;
         Ok(objs)
     }
@@ -690,20 +803,43 @@ impl Store for TursoStore {
     async fn count(&self, q: &Query) -> Result<usize> {
         let inner = self.inner.lock().await;
         let (w, p) = query_where(q);
-        let rows = collect(&inner.conn, &format!("SELECT COUNT(*) FROM objects o{w}"), p).await?;
+        let rows = collect(
+            &inner.conn,
+            &format!("SELECT COUNT(*) FROM objects o{w}"),
+            p,
+        )
+        .await?;
         Ok(int(&rows[0][0])? as usize)
     }
 
-    async fn log(&self, kind: ActivityKind, object: ObjectId, actor: &str, payload: serde_json::Value) -> Result<Activity> {
+    async fn log(
+        &self,
+        kind: ActivityKind,
+        object: ObjectId,
+        actor: &str,
+        payload: serde_json::Value,
+    ) -> Result<Activity> {
         if kind.changes_state() {
-            return Err(Error::Invalid(format!("{} is written by put/delete/undo/redo only", kind.as_str())));
+            return Err(Error::Invalid(format!(
+                "{} is written by put/delete/undo/redo only",
+                kind.as_str()
+            )));
         }
         let mut inner = self.inner.lock().await;
         let inner = &mut *inner;
         let conn = inner.conn.clone();
         let act = in_tx(&conn, async {
             let id = ActivityId::next_after(inner.last_activity);
-            let act = Activity { id, kind, object, actor: actor.into(), at: now(), target: None, payload, synced: false };
+            let act = Activity {
+                id,
+                kind,
+                object,
+                actor: actor.into(),
+                at: now(),
+                target: None,
+                payload,
+                synced: false,
+            };
             insert_activity(&inner.conn, &act).await?;
             inner.last_activity = Some(id);
             Ok(act)
@@ -736,8 +872,14 @@ impl Store for TursoStore {
         if f.unsynced_only {
             clauses.push("synced = 0");
         }
-        let w = if clauses.is_empty() { String::new() } else { format!(" WHERE {}", clauses.join(" AND ")) };
-        p.push(Value::Integer(f.limit.map(|l| l as i64).unwrap_or(i64::MAX)));
+        let w = if clauses.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", clauses.join(" AND "))
+        };
+        p.push(Value::Integer(
+            f.limit.map(|l| l as i64).unwrap_or(i64::MAX),
+        ));
         let rows = collect(
             &inner.conn,
             &format!("SELECT {ACTIVITY_COLS} FROM activities{w} ORDER BY id LIMIT ?"),
@@ -758,12 +900,20 @@ impl Store for TursoStore {
     async fn undo_state(&self, actor: &str) -> Result<UndoState> {
         let inner = self.inner.lock().await;
         let s = history::compute(&load_steps(&inner.conn, actor).await?);
-        Ok(UndoState { undoable: s.undo.len(), redoable: s.redo.len() })
+        Ok(UndoState {
+            undoable: s.undo.len(),
+            redoable: s.redo.len(),
+        })
     }
 
     async fn retention(&self) -> Result<Retention> {
         let inner = self.inner.lock().await;
-        let rows = collect(&inner.conn, "SELECT value FROM meta WHERE key = 'retention'", vec![]).await?;
+        let rows = collect(
+            &inner.conn,
+            "SELECT value FROM meta WHERE key = 'retention'",
+            vec![],
+        )
+        .await?;
         match rows.first() {
             Some(r) => Ok(serde_json::from_str(&text(&r[0])?)?),
             None => Ok(Retention::UNLIMITED),
@@ -815,6 +965,10 @@ impl Store for TursoStore {
         )
         .await?;
         let r = &rows[0];
-        Ok(LogStats { entries: int(&r[0])? as usize, unsynced: int(&r[1])? as usize, payload_bytes: int(&r[2])? as usize })
+        Ok(LogStats {
+            entries: int(&r[0])? as usize,
+            unsynced: int(&r[1])? as usize,
+            payload_bytes: int(&r[2])? as usize,
+        })
     }
 }

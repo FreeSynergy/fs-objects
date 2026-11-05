@@ -15,8 +15,8 @@ mod turso_store;
 pub use crypto::{Cipher, EncryptionKey, KeyProvider, StaticKeyProvider};
 pub use error::{Error, Result};
 pub use model::{
-    Activity, ActivityId, ActivityKind, Blob, ChangeSet, DpvCategory, Envelope, IndexFields, ObjectId,
-    StoredObject, Timestamp,
+    Activity, ActivityId, ActivityKind, Blob, ChangeSet, DpvCategory, Envelope, IndexFields,
+    ObjectId, StoredObject, Timestamp,
 };
 pub use store::{
     ActivityFilter, CompactionReport, LogStats, Order, Query, Retention, Store, UndoState,

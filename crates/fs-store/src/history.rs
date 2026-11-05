@@ -26,7 +26,8 @@ pub struct Stacks {
 /// * `Create`/`Update`/`Delete` push onto undo and clear redo (new work forks history).
 /// * `Undo` of a regular activity moves it from undo to redo.
 /// * `Undo` of an `Undo` (= redo) moves the original back to undo.
-/// * Targets that are no longer in the log (compacted) are ignored.
+/// * An `Undo` whose target is no longer in the log (compacted) is ignored, and the
+///   redo entries below it are dropped (they could only be redone through that target).
 pub fn compute(steps: &[Step]) -> Stacks {
     let mut s = Stacks::default();
     // Undo entries seen so far: undo-id -> the activity it reverted.
@@ -49,8 +50,12 @@ pub fn compute(steps: &[Step]) -> Stacks {
                     s.undo.remove(pos);
                     s.redo.push((t, st.id));
                     undone_by.insert(st.id, t);
+                } else {
+                    // The target was compacted away. Everything undone before this step
+                    // would have to be redone *after* it (stack order), which is impossible
+                    // now, so those redo entries are dropped.
+                    s.redo.clear();
                 }
-                // else: target compacted away -> ignored
             }
             _ => {}
         }

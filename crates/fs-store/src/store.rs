@@ -89,12 +89,21 @@ pub struct Retention {
 }
 
 impl Retention {
-    pub const UNLIMITED: Retention = Retention { max_age: None, max_steps: None };
+    pub const UNLIMITED: Retention = Retention {
+        max_age: None,
+        max_steps: None,
+    };
     pub fn steps(n: usize) -> Self {
-        Self { max_age: None, max_steps: Some(n) }
+        Self {
+            max_age: None,
+            max_steps: Some(n),
+        }
     }
     pub fn age(d: Duration) -> Self {
-        Self { max_age: Some(d), max_steps: None }
+        Self {
+            max_age: Some(d),
+            max_steps: None,
+        }
     }
 }
 
@@ -147,7 +156,13 @@ pub trait Store: Send + Sync {
 
     /// Append a log-only activity (`Add`, `Remove`, `Offer`, `Accept`, `Reject`, `Read`).
     /// State-changing kinds are produced by put/delete/undo/redo only.
-    async fn log(&self, kind: ActivityKind, object: ObjectId, actor: &str, payload: serde_json::Value) -> Result<Activity>;
+    async fn log(
+        &self,
+        kind: ActivityKind,
+        object: ObjectId,
+        actor: &str,
+        payload: serde_json::Value,
+    ) -> Result<Activity>;
 
     /// Change stream: every committed activity is sent after its commit.
     /// Slow receivers get `RecvError::Lagged` and should re-read the log.

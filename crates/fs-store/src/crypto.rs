@@ -43,7 +43,10 @@ pub struct EncryptionKey {
 
 impl std::fmt::Debug for EncryptionKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EncryptionKey").field("cipher", &self.cipher).field("key", &"<redacted>").finish()
+        f.debug_struct("EncryptionKey")
+            .field("cipher", &self.cipher)
+            .field("key", &"<redacted>")
+            .finish()
     }
 }
 

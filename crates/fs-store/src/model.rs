@@ -109,7 +109,11 @@ pub struct Envelope {
     pub object_type: String,
     /// Display name derived from the content (ADR 0032). Must not be empty.
     pub name: String,
-    #[serde(default, rename = "attributedTo", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "attributedTo",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub attributed_to: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub to: Vec<String>,
@@ -173,7 +177,9 @@ mod b64 {
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<Vec<u8>, D::Error> {
         let s = String::deserialize(d)?;
-        base64::engine::general_purpose::STANDARD.decode(s).map_err(serde::de::Error::custom)
+        base64::engine::general_purpose::STANDARD
+            .decode(s)
+            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -197,8 +203,18 @@ pub struct StoredObject {
 }
 
 impl StoredObject {
-    pub fn new(envelope: Envelope, content_type: impl Into<String>, content: serde_json::Value) -> Self {
-        Self { envelope, content_type: content_type.into(), content, original: None, index: BTreeMap::new() }
+    pub fn new(
+        envelope: Envelope,
+        content_type: impl Into<String>,
+        content: serde_json::Value,
+    ) -> Self {
+        Self {
+            envelope,
+            content_type: content_type.into(),
+            content,
+            original: None,
+            index: BTreeMap::new(),
+        }
     }
     /// Builder: attach the original.
     pub fn with_original(mut self, original: Blob) -> Self {
@@ -255,7 +271,10 @@ impl ActivityKind {
     }
     /// Kinds that change object state (and can be undone).
     pub fn changes_state(&self) -> bool {
-        matches!(self, Self::Create | Self::Update | Self::Delete | Self::Undo)
+        matches!(
+            self,
+            Self::Create | Self::Update | Self::Delete | Self::Undo
+        )
     }
 }
 
