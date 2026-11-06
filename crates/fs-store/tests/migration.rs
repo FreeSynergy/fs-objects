@@ -57,7 +57,7 @@ async fn migrates_a_0_1_database() {
     }
     {
         let s = TursoStore::open(&path).await.unwrap();
-        assert_eq!(s.schema_version(), 2);
+        assert_eq!(s.schema_version(), 3);
         let o = s.get(id).await.unwrap().unwrap();
         assert_eq!(o.envelope.name, "Émile Old");
         assert_eq!(o.envelope.start_time, None);

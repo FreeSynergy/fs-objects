@@ -8,6 +8,7 @@ mod codec;
 mod compaction;
 mod encryption;
 mod fault;
+mod guard;
 mod log_impl;
 mod migration;
 mod objects;

@@ -7,6 +7,7 @@ use turso::Value;
 
 use super::TursoStore;
 use super::codec::decode_activity;
+use super::guard::refuse_unlogged;
 use super::schema::ACTIVITY_COLS;
 use super::sql::collect;
 use super::tx::in_tx;
@@ -24,6 +25,7 @@ impl ActivityLog for TursoStore {
         let mut inner = self.inner.lock().await;
         let inner = &mut *inner;
         let conn = inner.conn.clone();
+        refuse_unlogged(&conn, object).await?;
         let act = in_tx(&conn, self.append_log(inner, actor, object, kind, payload)).await?;
         self.publish(std::slice::from_ref(&act));
         Ok(act)

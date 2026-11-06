@@ -17,6 +17,7 @@ six is a `Store` (blanket impl). Every file is one concept, <= 200 lines (tests 
 | `store/query.rs` | Builder | `Query::new().of_type(..).name_contains(..)`, backend-neutral |
 | `store/cond.rs` | Interpreter-style data | conditions are values; the backend translates them |
 | `store/feed.rs`, `turso/subscribe.rs` | Observer | `broadcast` channel, sent after commit |
+| `turso/guard.rs` | Guard | logged paths ask whether an id belongs to the unlogged path; the mark is written in the same transaction as the unlogged write |
 | `store/unlogged.rs`, `turso/unlogged.rs` | Repository (separate narrow trait) | data that must not carry a time; outside the `Store` facade so nobody reaches it by accident |
 | `store/undo.rs`, `turso/undo.rs`, `history.rs`, `model/activity.rs` | Command | activities carry before/after images; undo applies the inverse, stacks are pure (`history::compute`) |
 | `turso/*` (whole tree) | Adapter | Turso behind the `Store` traits |
@@ -61,7 +62,7 @@ Version 0.3.0.
 | Encryption at rest | done via `KeyProvider` + Turso page encryption (experimental in Turso); no key vault yet |
 | Sensitive data (ADR 0029) | envelope carries DPV categories; unencrypted store refuses sensitive objects unless opted out. No auto-link logic here (hub concern) |
 | Hub sync | only the data side: `activities(unsynced_only / after)` + `mark_synced`. No IPC (belongs to fs-hub) |
-| `UnloggedObjects` (0.3): `put_unlogged`, `read_unlogged`, `delete_unlogged`: no activity at any moment, no event, no undo, times as given. A separate trait, not part of `Store`; for anonymous ballots (`fs-surveys`). Old pages can stay on disk until reused | done |
+| `UnloggedObjects` (0.3): `put_unlogged`, `read_unlogged`, `delete_unlogged`: no activity at any moment, no event, no undo, times as given. A separate trait, not part of `Store`; for anonymous ballots (`fs-surveys`). Old pages can stay on disk until reused. **0.4: the logged calls (`put`, `put_and_log`, `delete`, `get`, `query`, `log`) refuse an id written through it** (`Error::Invalid`, table `unlogged_ids`, kept after a delete) | done |
 | Remote (HTTPS) backend | not started; trait is backend-neutral |
 | Tests | 43, split by feature in `tests/` (crud, query, search, ordering, envelope, kinds, log, undo, retention, encryption, migration, history, props, unlogged; helpers in `tests/common`) plus unit tests for `sort_key` |
 | Code layout (ADR 0043) | done: `src/{model,store,turso}/` trees, no file over 200 lines, `#![deny(missing_docs)]`, `Pattern:` line in every module doc |
@@ -166,3 +167,16 @@ multi-process mode is experimental and not used: one process owns one database f
 * Remote backend over JSON/HTTPS.
 * Tombstones for synced+compacted deletes if the hub needs them later (ADR 0020 open detail).
 * Whether `max_steps` should count per actor instead of globally.
+
+## 0.4 decisions
+
+* **Unlogged ids are marked, logged calls refuse them.** `put_unlogged` records the id in `unlogged_ids` in its own
+  transaction. `put`, `put_and_log`, `delete`, `get`, `log` on such an id return `Error::Invalid` (no new `Error`
+  variant: the enum is exhaustive, a variant would break dependents). `query` fails if any hit is a marked id, so
+  keep unlogged objects in a store of their own or in a type no logged query asks for; `count` is not refused (a number
+  only). `read_unlogged`, `put_unlogged`, `delete_unlogged` are unchanged; the mark outlives a delete.
+  **Limit:** an object written unlogged by 0.2/0.3 has no mark. It cannot be told from a logged object whose
+  entries were compacted, so the migration does not guess; the mark appears with the next `put_unlogged` of that id
+  (ballot boxes and the guard state are rewritten constantly; a mail key only when replaced). A store that
+  mixed both paths in 0.3 should call `put_unlogged` once on each such id after the upgrade.
+* Schema version 3 (tables only; version 2 files migrate in place; 0.3 cannot open a version 3 file).

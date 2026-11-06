@@ -8,6 +8,7 @@ use chrono::SubsecRound;
 
 use super::TursoStore;
 use super::activities::last_activity_id;
+use super::guard::refuse_unlogged;
 use super::objects::load_object;
 use super::rows::now;
 use super::store::Change;
@@ -78,6 +79,7 @@ impl ObjectRepository for TursoStore {
         let conn = inner.conn.clone();
         let res = in_tx(&conn, async {
             let id = object.envelope.id;
+            refuse_unlogged(&inner.conn, id).await?;
             let before = load_object(&inner.conn, id).await?;
             let (kind, after) = plan_put(object, before.as_ref())?;
             let first = self
@@ -119,6 +121,7 @@ impl ObjectRepository for TursoStore {
 
     async fn get(&self, id: ObjectId) -> Result<Option<StoredObject>> {
         let inner = self.inner.lock().await;
+        refuse_unlogged(&inner.conn, id).await?;
         load_object(&inner.conn, id).await
     }
 
@@ -127,6 +130,7 @@ impl ObjectRepository for TursoStore {
         let inner = &mut *inner;
         let conn = inner.conn.clone();
         let act = in_tx(&conn, async {
+            refuse_unlogged(&inner.conn, id).await?;
             let before = load_object(&inner.conn, id)
                 .await?
                 .ok_or(Error::NotFound(id))?;

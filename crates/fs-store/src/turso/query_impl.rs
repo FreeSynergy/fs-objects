@@ -7,6 +7,7 @@ use turso::Value;
 
 use super::TursoStore;
 use super::codec::decode_object;
+use super::guard::refuse_unlogged_in;
 use super::objects::attach_index;
 use super::query_sql::{order_by, query_where};
 use super::rows::int;
@@ -37,6 +38,7 @@ impl ObjectQuery for TursoStore {
             .iter()
             .map(|r| decode_object(r))
             .collect::<Result<Vec<_>>>()?;
+        refuse_unlogged_in(&inner.conn, &objs).await?;
         attach_index(&inner.conn, &mut objs).await?;
         Ok(objs)
     }

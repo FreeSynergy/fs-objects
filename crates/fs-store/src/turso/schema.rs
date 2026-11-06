@@ -2,8 +2,8 @@
 //!
 //! Pattern: none (declarative data) — kept apart so the migration can reuse it.
 
-/// Current schema version (table `schema_version`). 1 = fs-store 0.1 (no version table).
-pub const SCHEMA_VERSION: i64 = 2;
+/// Current schema version (table `schema_version`). 1 = fs-store 0.1 (no version table), 2 = 0.2/0.3, 3 = 0.4.
+pub const SCHEMA_VERSION: i64 = 3;
 
 pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
@@ -39,12 +39,18 @@ CREATE TABLE IF NOT EXISTS activities (
     payload TEXT NOT NULL,
     synced INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS unlogged_ids (object_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS index_fields (
     object_id TEXT NOT NULL,
     key TEXT NOT NULL,
     value TEXT NOT NULL,
     value_norm TEXT NOT NULL DEFAULT ''
 );
+";
+
+/// Tables added in version 3 (also run by the migration from 1 and 2).
+pub(super) const V3_TABLES: &str = "
+CREATE TABLE IF NOT EXISTS unlogged_ids (object_id TEXT PRIMARY KEY);
 ";
 
 /// Indexes (all `IF NOT EXISTS`; run after the tables/columns exist, also by the migration).

@@ -6,7 +6,7 @@
 use turso::{Connection, Value};
 
 use super::rows::{opt_int, text};
-use super::schema::{INDEXES, SCHEMA, SCHEMA_VERSION};
+use super::schema::{INDEXES, SCHEMA, SCHEMA_VERSION, V3_TABLES};
 use super::sql::{collect, exec};
 use super::tx::in_tx;
 use crate::{Error, Result, sort_key};
@@ -26,7 +26,10 @@ pub(super) async fn migrate(c: &Connection) -> Result<()> {
         if current == 0 {
             c.execute_batch(SCHEMA).await?;
         } else {
-            v1_to_v2(c).await?;
+            if current == 1 {
+                v1_to_v2(c).await?;
+            }
+            v2_to_v3(c).await?;
         }
         c.execute_batch(INDEXES).await?;
         exec(c, "DELETE FROM schema_version", vec![]).await?;
@@ -90,5 +93,12 @@ async fn v1_to_v2(c: &Connection) -> Result<()> {
         )
         .await?;
     }
+    Ok(())
+}
+
+/// 2 -> 3: tables only (existing rows and logs read unchanged). Ids written unlogged by 0.3 cannot be
+/// told apart from objects whose log was compacted, so they are not marked; see `DESIGN.md`.
+async fn v2_to_v3(c: &Connection) -> Result<()> {
+    c.execute_batch(V3_TABLES).await?;
     Ok(())
 }

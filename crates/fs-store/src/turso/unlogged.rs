@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use turso::Value;
 
 use super::TursoStore;
+use super::guard::mark_unlogged;
 use super::objects::{load_object, remove_object, write_object};
 use super::sql::collect;
 use super::tx::in_tx;
@@ -49,6 +50,7 @@ impl UnloggedObjects for TursoStore {
                     _ => {}
                 }
             }
+            mark_unlogged(&inner.conn, after.envelope.id).await?;
             write_object(&inner.conn, &after).await
         })
         .await
