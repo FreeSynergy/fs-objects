@@ -12,6 +12,7 @@ mod repository;
 mod retention;
 mod search;
 mod undo;
+mod unlogged;
 
 pub use cond::{Cond, Op, TimeField};
 pub use facade::Store;
@@ -22,3 +23,4 @@ pub use repository::ObjectRepository;
 pub use retention::{CompactionReport, HistoryRetention, LogStats, Retention};
 pub use search::ObjectQuery;
 pub use undo::{UndoRedo, UndoState};
+pub use unlogged::UnloggedObjects;

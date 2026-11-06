@@ -8,4 +8,5 @@
 
 pub use crate::store::{
     ActivityLog, ChangeFeed, HistoryRetention, ObjectQuery, ObjectRepository, UndoRedo,
+    UnloggedObjects,
 };

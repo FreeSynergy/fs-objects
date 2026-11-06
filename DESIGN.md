@@ -17,6 +17,7 @@ six is a `Store` (blanket impl). Every file is one concept, <= 200 lines (tests 
 | `store/query.rs` | Builder | `Query::new().of_type(..).name_contains(..)`, backend-neutral |
 | `store/cond.rs` | Interpreter-style data | conditions are values; the backend translates them |
 | `store/feed.rs`, `turso/subscribe.rs` | Observer | `broadcast` channel, sent after commit |
+| `store/unlogged.rs`, `turso/unlogged.rs` | Repository (separate narrow trait) | data that must not carry a time; outside the `Store` facade so nobody reaches it by accident |
 | `store/undo.rs`, `turso/undo.rs`, `history.rs`, `model/activity.rs` | Command | activities carry before/after images; undo applies the inverse, stacks are pure (`history::compute`) |
 | `turso/*` (whole tree) | Adapter | Turso behind the `Store` traits |
 | `turso/store.rs` (`apply`) | Command executor | one change (kind, before, after) written together with its activity |
@@ -39,7 +40,7 @@ for the same concrete type in one scope (calls become ambiguous); use `dyn Objec
 
 ## State
 
-Version 0.2.0 (local only, never pushed; the GitHub repo of the same name is the unrelated old one).
+Version 0.3.0.
 
 | Area | State |
 |---|---|
@@ -60,8 +61,9 @@ Version 0.2.0 (local only, never pushed; the GitHub repo of the same name is the
 | Encryption at rest | done via `KeyProvider` + Turso page encryption (experimental in Turso); no key vault yet |
 | Sensitive data (ADR 0029) | envelope carries DPV categories; unencrypted store refuses sensitive objects unless opted out. No auto-link logic here (hub concern) |
 | Hub sync | only the data side: `activities(unsynced_only / after)` + `mark_synced`. No IPC (belongs to fs-hub) |
+| `UnloggedObjects` (0.3): `put_unlogged`, `read_unlogged`, `delete_unlogged`: no activity at any moment, no event, no undo, times as given. A separate trait, not part of `Store`; for anonymous ballots (`fs-surveys`). Old pages can stay on disk until reused | done |
 | Remote (HTTPS) backend | not started; trait is backend-neutral |
-| Tests | 37, split by feature in `tests/` (crud, query, search, ordering, envelope, kinds, log, undo, retention, encryption, migration, history, props; helpers in `tests/common`) plus unit tests for `sort_key` |
+| Tests | 43, split by feature in `tests/` (crud, query, search, ordering, envelope, kinds, log, undo, retention, encryption, migration, history, props, unlogged; helpers in `tests/common`) plus unit tests for `sort_key` |
 | Code layout (ADR 0043) | done: `src/{model,store,turso}/` trees, no file over 200 lines, `#![deny(missing_docs)]`, `Pattern:` line in every module doc |
 | Example | `cargo run -p fs-store --example contacts` imports the demo contacts (`Profile`) and events (`Event`) |
 

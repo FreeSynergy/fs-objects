@@ -2,7 +2,8 @@
 //!
 //! An object is an ActivityStreams 2.0 envelope + domain content (JSContact,
 //! JSCalendar, ...) + optional untouched original; every change is recorded
-//! in an append-only activity log in the same transaction (ADR 0019, 0020, 0030).
+//! in an append-only activity log in the same transaction (ADR 0019, 0020, 0030). The one
+//! exception is the separate trait [`traits::UnloggedObjects`], for data that must not carry a time.
 //!
 //! Pattern: Facade/Strategy — programs depend on the [`Store`] trait (composed of focused
 //! traits, see [`traits`]); [`TursoStore`] is the embedded backend. See `DESIGN.md` for the pattern map.
@@ -44,6 +45,7 @@ pub use store::{
 };
 pub(crate) use store::{
     ActivityLog, ChangeFeed, HistoryRetention, ObjectQuery, ObjectRepository, UndoRedo,
+    UnloggedObjects,
 };
 pub use text::sort_key;
 pub use turso::{OpenOptions, TursoStore};

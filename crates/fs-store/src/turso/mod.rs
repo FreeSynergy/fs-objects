@@ -24,6 +24,7 @@ mod store;
 mod subscribe;
 mod tx;
 mod undo;
+mod unlogged;
 mod validate;
 
 pub use options::OpenOptions;
