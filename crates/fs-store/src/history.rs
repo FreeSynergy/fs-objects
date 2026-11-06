@@ -1,4 +1,7 @@
 //! Pure undo/redo stack computation over log entries (backend-independent).
+//!
+//! Pattern: Command (history) — folds the recorded commands into undo/redo stacks; pure, so it
+//! is unit-tested without a database.
 
 use std::collections::HashMap;
 
@@ -7,8 +10,11 @@ use crate::{ActivityId, ActivityKind};
 /// The part of a log entry the stack computation needs.
 #[derive(Clone, Copy, Debug)]
 pub struct Step {
+    /// Id of the log entry.
     pub id: ActivityId,
+    /// Kind of the log entry.
     pub kind: ActivityKind,
+    /// For `Undo`: the reverted activity.
     pub target: Option<ActivityId>,
 }
 

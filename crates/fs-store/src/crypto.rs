@@ -1,5 +1,7 @@
 //! Encryption-at-rest hook (ADR 0024).
 //!
+//! Pattern: Strategy — [`KeyProvider`] is the strategy for obtaining a key (static, vault, ...).
+//!
 //! The store never manages keys itself. A [`KeyProvider`] hands it a key when
 //! the store is opened; the future key vault implements this trait.
 //! The `TursoStore` maps the key onto Turso's experimental page-level
@@ -10,9 +12,13 @@ use crate::{Error, Result};
 /// Ciphers supported by Turso's page encryption.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cipher {
+    /// AES-128-GCM (16-byte key).
     Aes128Gcm,
+    /// AES-256-GCM (32-byte key).
     Aes256Gcm,
+    /// AEGIS-256 (32-byte key).
     Aegis256,
+    /// AEGIS-128L (16-byte key).
     Aegis128L,
 }
 
@@ -37,7 +43,9 @@ impl Cipher {
 /// A raw key for one store.
 #[derive(Clone)]
 pub struct EncryptionKey {
+    /// The cipher the key is for.
     pub cipher: Cipher,
+    /// Raw key bytes; length must match [`Cipher::key_len`].
     pub key: Vec<u8>,
 }
 

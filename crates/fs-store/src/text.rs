@@ -1,4 +1,6 @@
 //! Text normalisation for case-insensitive search and ordering.
+//!
+//! Pattern: none (pure functions) — the one place that defines the sort/search key.
 
 use unicode_normalization::UnicodeNormalization;
 

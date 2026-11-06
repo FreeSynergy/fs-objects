@@ -3,7 +3,11 @@
 //! An object is an ActivityStreams 2.0 envelope + domain content (JSContact,
 //! JSCalendar, ...) + optional untouched original; every change is recorded
 //! in an append-only activity log in the same transaction (ADR 0019, 0020, 0030).
-//! See `DESIGN.md`.
+//!
+//! Pattern: Facade/Strategy — programs depend on the [`Store`] trait (composed of focused
+//! traits, see [`traits`]); [`TursoStore`] is the embedded backend. See `DESIGN.md` for the pattern map.
+
+#![deny(missing_docs)]
 
 mod crypto;
 mod error;
@@ -11,7 +15,8 @@ pub mod history;
 mod model;
 mod store;
 mod text;
-mod turso_store;
+pub mod traits;
+mod turso;
 
 pub use crypto::{Cipher, EncryptionKey, KeyProvider, StaticKeyProvider};
 pub use error::{Error, Result};
@@ -23,5 +28,8 @@ pub use store::{
     ActivityFilter, CompactionReport, Cond, LogEntry, LogStats, Op, Order, Query, Retention, Store,
     TimeField, UndoState,
 };
+pub(crate) use store::{
+    ActivityLog, ChangeFeed, HistoryRetention, ObjectQuery, ObjectRepository, UndoRedo,
+};
 pub use text::sort_key;
-pub use turso_store::{OpenOptions, TursoStore};
+pub use turso::{OpenOptions, TursoStore};

@@ -1,4 +1,6 @@
 //! Error type shared by all backends.
+//!
+//! Pattern: none (plain `thiserror` enum) — one error type so backends are interchangeable.
 
 use crate::ObjectId;
 
