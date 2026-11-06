@@ -3,6 +3,40 @@
 `fs-store` is the object store every FreeSynergy program embeds (ADR 0019). Programs never speak SQL or Turso;
 they use the `Store` trait. The first backend is `TursoStore` (embedded `turso` crate, **no Turso sync**).
 
+## Structure and pattern map (ADR 0043)
+
+`Store` is a **facade** over six focused traits (module `fs_store::traits`): `ObjectRepository` (put, put_and_log,
+get, delete), `ObjectQuery` (query, count), `ActivityLog` (log, activities), `ChangeFeed` (subscribe), `UndoRedo`
+(undo, redo, undo_state), `HistoryRetention` (retention, compaction, mark_synced, log_stats). Any type implementing all
+six is a `Store` (blanket impl). Every file is one concept, <= 200 lines (tests included).
+
+| Module | Pattern | Why |
+|---|---|---|
+| `store/facade.rs` | Facade | one name (`Store`) for dependents, `Arc<dyn Store>` unchanged |
+| `store/{repository,search,log,feed,undo,retention}.rs` | Strategy (interface segregation) / Repository | consumers depend on the one trait they need; backends are swappable (remote later) |
+| `store/query.rs` | Builder | `Query::new().of_type(..).name_contains(..)`, backend-neutral |
+| `store/cond.rs` | Interpreter-style data | conditions are values; the backend translates them |
+| `store/feed.rs`, `turso/subscribe.rs` | Observer | `broadcast` channel, sent after commit |
+| `store/undo.rs`, `turso/undo.rs`, `history.rs`, `model/activity.rs` | Command | activities carry before/after images; undo applies the inverse, stacks are pure (`history::compute`) |
+| `turso/*` (whole tree) | Adapter | Turso behind the `Store` traits |
+| `turso/store.rs` (`apply`) | Command executor | one change (kind, before, after) written together with its activity |
+| `turso/tx.rs` | Template method | `BEGIN IMMEDIATE`, step, `COMMIT`/`ROLLBACK`; Drop cannot await a rollback, so a closure wrapper replaces the RAII guard |
+| `turso/migration.rs` | Template method | detect version, run the matching step in one transaction |
+| `turso/open.rs` | Factory | file / in-memory / with options |
+| `turso/encryption.rs`, `crypto.rs` | Strategy | `KeyProvider` supplies the key; Turso page encryption is applied |
+| `turso/{objects,activities}.rs` | Repository (internal) | only modules that know the table layout |
+| `turso/query_sql.rs` | Builder (internal) | `Query` to `WHERE`/`ORDER BY` + parameters |
+| `turso/{codec,rows,sql}.rs` | Adapter | foreign rows/values to typed model |
+| `store/retention.rs`, `turso/{retention,compaction}.rs` | Strategy / Template method | `Retention` is the policy; `compact_with` is the fixed skeleton |
+| `model/ids.rs` | Newtype | `ObjectId` and `ActivityId` cannot be mixed up |
+| `model/{envelope,object}.rs` | Newtype aliases / Builder | typed fields; `with_original`, `with_index` |
+
+## Migration for dependents
+
+None required: `Store`, `TursoStore`, `Query`, ... keep their paths and signatures; fs-contacts, fs-calendar, fs-maps
+and fs-hub compile unchanged. New: the focused traits in `fs_store::traits`. Do not import `Store` and a focused trait
+for the same concrete type in one scope (calls become ambiguous); use `dyn ObjectQuery` etc. for narrow dependencies.
+
 ## State
 
 Version 0.2.0 (local only, never pushed; the GitHub repo of the same name is the unrelated old one).
@@ -10,7 +44,7 @@ Version 0.2.0 (local only, never pushed; the GitHub repo of the same name is the
 | Area | State |
 |---|---|
 | Types: `ObjectId`/`ActivityId` (UUIDv7), `Envelope`, `StoredObject`, `Blob`, `Activity`, `ChangeSet` | done |
-| `Store` trait (async, `async-trait`, object-safe) | done |
+| `Store` trait (async, `async-trait`, object-safe) | done; since the ADR 0043 refactor a facade over six focused traits (`fs_store::traits`) |
 | `TursoStore` (file or in-memory) | done, `turso = "=0.8.3"` pinned (default features off: no mimalloc, no tantivy FTS) |
 | Atomic object change + activity | done, one `BEGIN IMMEDIATE` transaction; rollback test via fault injection |
 | `put_and_log(object, actor, extra)` (0.2) | done: `Create`/`Update` plus any number of log-only extras (`Accept`, `TentativeAccept`, ...) in one transaction; fault-injection test (`inject_fault_before_extra`) proves all-or-nothing, nothing published on failure |
@@ -27,7 +61,8 @@ Version 0.2.0 (local only, never pushed; the GitHub repo of the same name is the
 | Sensitive data (ADR 0029) | envelope carries DPV categories; unencrypted store refuses sensitive objects unless opted out. No auto-link logic here (hub concern) |
 | Hub sync | only the data side: `activities(unsynced_only / after)` + `mark_synced`. No IPC (belongs to fs-hub) |
 | Remote (HTTPS) backend | not started; trait is backend-neutral |
-| Tests | 37: integration (temp dirs, in-memory; 19 + 13 new in `tests/v02.rs`), property tests (model-based undo/redo, compaction invariants), unit tests for the stack logic and `sort_key` |
+| Tests | 37, split by feature in `tests/` (crud, query, search, ordering, envelope, kinds, log, undo, retention, encryption, migration, history, props; helpers in `tests/common`) plus unit tests for `sort_key` |
+| Code layout (ADR 0043) | done: `src/{model,store,turso}/` trees, no file over 200 lines, `#![deny(missing_docs)]`, `Pattern:` line in every module doc |
 | Example | `cargo run -p fs-store --example contacts` imports the demo contacts (`Profile`) and events (`Event`) |
 
 ## Object model (ADR 0020, 0030, 0032)
