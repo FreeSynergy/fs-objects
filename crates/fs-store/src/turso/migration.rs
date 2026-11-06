@@ -58,7 +58,9 @@ async fn detect_version(c: &Connection) -> Result<i64> {
         rows.first()
             .and_then(|r| opt_int(&r[0]).ok().flatten())
             .unwrap_or(0)
-    } else { i64::from(has("objects")) })
+    } else {
+        i64::from(has("objects"))
+    })
 }
 
 /// 1 -> 2: first-class envelope fields, normalised sort/search keys.

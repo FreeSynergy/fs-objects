@@ -53,9 +53,7 @@ impl ActivityLog for TursoStore {
         } else {
             format!(" WHERE {}", clauses.join(" AND "))
         };
-        p.push(Value::Integer(
-            f.limit.map_or(i64::MAX, |l| l as i64),
-        ));
+        p.push(Value::Integer(f.limit.map_or(i64::MAX, |l| l as i64)));
         let rows = collect(
             &inner.conn,
             &format!("SELECT {ACTIVITY_COLS} FROM activities{w} ORDER BY id LIMIT ?"),
