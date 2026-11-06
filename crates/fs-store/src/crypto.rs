@@ -30,7 +30,7 @@ impl Cipher {
             Cipher::Aes256Gcm | Cipher::Aegis256 => 32,
         }
     }
-    pub(crate) fn turso_name(&self) -> &'static str {
+    pub(crate) fn turso_name(self) -> &'static str {
         match self {
             Cipher::Aes128Gcm => "aes128gcm",
             Cipher::Aes256Gcm => "aes256gcm",
@@ -71,7 +71,11 @@ impl EncryptionKey {
         Ok(())
     }
     pub(crate) fn hex(&self) -> String {
-        self.key.iter().map(|b| format!("{b:02x}")).collect()
+        use std::fmt::Write as _;
+        self.key.iter().fold(String::new(), |mut s, b| {
+            let _ = write!(s, "{b:02x}");
+            s
+        })
     }
 }
 

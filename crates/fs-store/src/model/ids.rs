@@ -1,4 +1,4 @@
-//! Newtype identifiers: [`ObjectId`] and [`ActivityId`] (UUIDv7, ADR 0027).
+//! Newtype identifiers: [`ObjectId`] and [`ActivityId`] (`UUIDv7`, ADR 0027).
 //!
 //! Pattern: Newtype — distinct id types so an object id can never be passed where an activity id
 //! is expected; the `uuid_id!` macro keeps both definitions identical.
@@ -45,11 +45,11 @@ macro_rules! uuid_id {
 }
 
 uuid_id!(
-    /// Identifier of an object: UUIDv7 (RFC 9562, ADR 0027).
+    /// Identifier of an object: `UUIDv7` (RFC 9562, ADR 0027).
     ObjectId
 );
 uuid_id!(
-    /// Identifier of an activity-log entry: UUIDv7, so id order is log order.
+    /// Identifier of an activity-log entry: `UUIDv7`, so id order is log order.
     ActivityId
 );
 

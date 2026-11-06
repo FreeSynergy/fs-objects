@@ -105,7 +105,7 @@ impl FromStr for ActivityKind {
 /// One append-only log entry.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Activity {
-    /// Log id (UUIDv7, strictly increasing per store).
+    /// Log id (`UUIDv7`, strictly increasing per store).
     pub id: ActivityId,
     /// What happened.
     pub kind: ActivityKind,

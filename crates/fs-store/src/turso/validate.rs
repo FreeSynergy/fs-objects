@@ -18,7 +18,7 @@ pub(super) fn validate(o: &StoredObject) -> Result<()> {
         return Err(Error::Invalid("content_type must not be empty".into()));
     }
     for (k, v) in &o.index {
-        if k.is_empty() || v.iter().any(|x| x.is_empty()) {
+        if k.is_empty() || v.iter().any(std::string::String::is_empty) {
             return Err(Error::Invalid(
                 "index keys and values must not be empty".into(),
             ));

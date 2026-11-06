@@ -54,7 +54,7 @@ impl ActivityLog for TursoStore {
             format!(" WHERE {}", clauses.join(" AND "))
         };
         p.push(Value::Integer(
-            f.limit.map(|l| l as i64).unwrap_or(i64::MAX),
+            f.limit.map_or(i64::MAX, |l| l as i64),
         ));
         let rows = collect(
             &inner.conn,

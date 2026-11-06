@@ -32,15 +32,12 @@ fn like_pattern(op: Op, needle: &str) -> String {
 /// Condition on a column that holds an already-normalised key (`name_sort`, `value_norm`).
 fn text_cond(col: &str, op: Op, value: &str, p: &mut Vec<Value>) -> String {
     let key = sort_key(value);
-    match cmp_sql(op) {
-        Some(c) => {
-            p.push(Value::Text(key));
-            format!("{col} {c} ?")
-        }
-        None => {
-            p.push(Value::Text(like_pattern(op, &key)));
-            format!("{col} LIKE ? ESCAPE '\\'")
-        }
+    if let Some(c) = cmp_sql(op) {
+        p.push(Value::Text(key));
+        format!("{col} {c} ?")
+    } else {
+        p.push(Value::Text(like_pattern(op, &key)));
+        format!("{col} LIKE ? ESCAPE '\\'")
     }
 }
 

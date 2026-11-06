@@ -34,10 +34,9 @@ pub(super) async fn insert_activity(c: &Connection, a: &Activity) -> Result<()> 
             Value::Text(a.actor.clone()),
             Value::Integer(a.at.timestamp_micros()),
             a.target
-                .map(|t| Value::Text(t.to_string()))
-                .unwrap_or(Value::Null),
+                .map_or(Value::Null, |t| Value::Text(t.to_string())),
             Value::Text(a.payload.to_string()),
-            Value::Integer(a.synced as i64),
+            Value::Integer(i64::from(a.synced)),
         ],
     )
     .await?;

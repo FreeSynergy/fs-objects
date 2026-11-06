@@ -17,7 +17,7 @@ pub type DpvCategory = String;
 /// The ActivityStreams 2.0 envelope of an object (ADR 0020). Always has a `name` (ADR 0032).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Envelope {
-    /// Internal id (UUIDv7).
+    /// Internal id (`UUIDv7`).
     pub id: ObjectId,
     /// External absolute IRI, `https://<instance>/<domain>/<uuid>` (ADR 0027), if assigned.
     #[serde(default, skip_serializing_if = "Option::is_none")]

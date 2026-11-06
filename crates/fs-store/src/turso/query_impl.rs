@@ -26,7 +26,7 @@ impl ObjectQuery for TursoStore {
             .collect::<Vec<_>>()
             .join(", ");
         p.push(Value::Integer(
-            q.limit.map(|l| l as i64).unwrap_or(i64::MAX),
+            q.limit.map_or(i64::MAX, |l| l as i64),
         ));
         p.push(Value::Integer(q.offset as i64));
         let rows = collect(

@@ -44,13 +44,10 @@ pub(super) fn opt_int(v: &Value) -> Result<Option<i64>> {
     }
 }
 
-pub(super) fn opt_ts_val(t: &Option<Timestamp>) -> Value {
-    t.map(|t| Value::Integer(t.timestamp_micros()))
-        .unwrap_or(Value::Null)
+pub(super) fn opt_ts_val(t: Option<Timestamp>) -> Value {
+    t.map_or(Value::Null, |t| Value::Integer(t.timestamp_micros()))
 }
 
-pub(super) fn opt_text_val(s: &Option<String>) -> Value {
-    s.as_ref()
-        .map(|s| Value::Text(s.clone()))
-        .unwrap_or(Value::Null)
+pub(super) fn opt_text_val(s: Option<&String>) -> Value {
+    s.map_or(Value::Null, |s| Value::Text(s.clone()))
 }

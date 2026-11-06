@@ -21,7 +21,7 @@ use crate::{
 /// (store-owned timestamps, immutable original).
 fn plan_put(
     object: StoredObject,
-    before: &Option<StoredObject>,
+    before: Option<&StoredObject>,
 ) -> Result<(ActivityKind, StoredObject)> {
     let id = object.envelope.id;
     let mut after = object;
@@ -36,7 +36,7 @@ fn plan_put(
             after.envelope.published = b.envelope.published;
             after.envelope.updated = t.max(b.envelope.updated);
             match (&b.original, &after.original) {
-                (Some(_), None) => after.original = b.original.clone(),
+                (Some(_), None) => after.original.clone_from(&b.original),
                 (Some(x), Some(y)) if x != y => return Err(Error::OriginalImmutable(id)),
                 (None, Some(_)) => return Err(Error::OriginalImmutable(id)),
                 _ => {}
@@ -79,7 +79,7 @@ impl ObjectRepository for TursoStore {
         let res = in_tx(&conn, async {
             let id = object.envelope.id;
             let before = load_object(&inner.conn, id).await?;
-            let (kind, after) = plan_put(object, &before)?;
+            let (kind, after) = plan_put(object, before.as_ref())?;
             let first = self
                 .apply(
                     inner,
