@@ -1,8 +1,8 @@
 //! The payload of a state-changing activity: before/after images, or none for a purged object.
 //!
-//! Pattern: Specification — the predicate "was this object purged" (`is_purged`) decides the payload: a normal
-//! object logs both images, a purged one logs none, so a later write cannot copy the content it was purged for
-//! back into the log.
+//! Pattern: none (one function that builds the payload) — whether the object was purged (`purge.rs`) decides it: a
+//! normal object logs both images, a purged one logs none, so a later write cannot copy the content it was purged
+//! for back into the log.
 
 use turso::Connection;
 

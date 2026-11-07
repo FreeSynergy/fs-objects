@@ -1,8 +1,8 @@
 //! Transaction wrapper.
 //!
-//! Pattern: Template method — `in_tx` fixes the skeleton (`BEGIN IMMEDIATE`, run the step,
-//! `COMMIT` or `ROLLBACK`) and the caller supplies the varying step as a future. A `Drop` guard
-//! cannot await the rollback, so the closure form is the safe RAII equivalent here.
+//! Pattern: none (one function with a closure) — `in_tx` runs `BEGIN IMMEDIATE`, the step the caller passes as a
+//! future, then `COMMIT` or `ROLLBACK`. A `Drop` guard cannot await the rollback, so the closure form stands in
+//! for RAII here; it is not the Template method of coding.md §2, which is a trait with provided methods.
 
 use std::future::Future;
 

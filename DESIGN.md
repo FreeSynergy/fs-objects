@@ -23,7 +23,7 @@ seven is a `Store` (blanket impl). Every file is one concept, <= 200 lines (test
 | `store/undo.rs`, `turso/undo.rs`, `history.rs`, `model/activity.rs` | Command | activities carry before/after images; undo applies the inverse, stacks are pure (`history::compute`) |
 | `turso/*` (whole tree) | Adapter | Turso behind the `Store` traits |
 | `turso/store.rs` (`apply`) | Command executor | one change (kind, before, after) written together with its activity |
-| `turso/tx.rs` | Template method | `BEGIN IMMEDIATE`, step, `COMMIT`/`ROLLBACK`; Drop cannot await a rollback, so a closure wrapper replaces the RAII guard |
+| `turso/tx.rs` | none (closure wrapper) | `BEGIN IMMEDIATE`, step, `COMMIT`/`ROLLBACK`; Drop cannot await a rollback, so a closure wrapper replaces the RAII guard |
 | `turso/migration.rs` | Template method | detect version, run the matching step in one transaction |
 | `turso/open.rs` | Factory | file / in-memory / with options |
 | `turso/encryption.rs`, `crypto.rs` | Strategy | `KeyProvider` supplies the key; Turso page encryption is applied |
@@ -32,7 +32,7 @@ seven is a `Store` (blanket impl). Every file is one concept, <= 200 lines (test
 | `store/info.rs`, `turso/info.rs`, `turso/identity.rs` | Strategy (segregation) / Adapter / Adapter | `StoreInfo`: who is this store, is it encrypted; the identity row (Turso part of `StoreInfo`) is made in the migration transaction |
 | `model/store_id.rs` | Newtype | `StoreId` is not an object or activity id |
 | `store/originals.rs`, `turso/originals.rs` | Strategy (policy) / Adapter | `LargeOriginals`: draft, Turso answers `Error::Backend("... not supported")` |
-| `turso/payload.rs` | Specification | `is_purged(object)` decides whether a write logs images |
+| `turso/payload.rs` | none (payload builder) | `is_purged(object)` decides whether a write logs images |
 | `turso/{objects,activities}.rs` | Repository (internal) | only modules that know the table layout |
 | `turso/query_sql.rs` | Builder (internal) | `Query` to `WHERE`/`ORDER BY` + parameters |
 | `turso/{codec,rows,sql}.rs` | Adapter | foreign rows/values to typed model |
