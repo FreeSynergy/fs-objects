@@ -81,11 +81,11 @@ async fn later_writes_on_a_purged_object_log_without_images_and_are_not_undoable
     n.content = json!({"t": SECRET});
     let upd = s.put(n.clone(), ME).await.unwrap();
     assert_eq!(upd.kind, ActivityKind::Update);
-    assert_eq!(upd.change_set().unwrap(), ChangeSet::default());
+    assert!(upd.is_redacted());
     assert!(!log_text(&s).await.contains(SECRET));
     assert!(!log_text(&s).await.contains("old"));
     let del = s.delete(x.envelope.id, ME).await.unwrap();
-    assert_eq!(del.change_set().unwrap(), ChangeSet::default());
+    assert!(del.is_redacted());
     assert_eq!(s.undo_state(ME).await.unwrap().undoable, 0);
     assert!(s.undo(ME, 1).await.unwrap().is_empty());
 }
