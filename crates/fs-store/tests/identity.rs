@@ -74,11 +74,12 @@ async fn the_facade_and_the_trait_agree_and_is_encrypted_tells_the_truth() {
 }
 
 #[tokio::test]
-async fn a_version_3_file_gets_exactly_one_identity_on_first_open() {
+async fn an_older_file_without_identity_gets_exactly_one_on_first_open() {
+    // The real version 3 file is in `migration_v3.rs`; here the identity row is removed from a current file
+    // to show the first open makes one and later opens keep it.
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("v3.db");
+    let path = dir.path().join("old.db");
     drop(TursoStore::open(&path).await.unwrap());
-    // Turn it into a version 3 file: no identity, old version number.
     let db = turso::Builder::new_local(path.to_str().unwrap())
         .build()
         .await

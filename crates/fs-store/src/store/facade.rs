@@ -70,6 +70,12 @@ pub trait Store: Send + Sync {
     async fn mark_synced(&self, up_to: ActivityId) -> Result<usize>;
     /// See [`HistoryRetention::log_stats`].
     async fn log_stats(&self) -> Result<LogStats>;
+    /// See [`HistoryRetention::clean_files`]. Default: unsupported.
+    async fn clean_files(&self) -> Result<bool> {
+        Err(crate::Error::Backend(
+            "clean_files is not supported by this store".into(),
+        ))
+    }
     /// See [`StoreInfo::identity`].
     fn identity(&self) -> StoreId;
     /// See [`StoreInfo::is_encrypted`].
@@ -161,6 +167,9 @@ where
     }
     async fn log_stats(&self) -> Result<LogStats> {
         HistoryRetention::log_stats(self).await
+    }
+    async fn clean_files(&self) -> Result<bool> {
+        HistoryRetention::clean_files(self).await
     }
     fn identity(&self) -> StoreId {
         StoreInfo::identity(self)

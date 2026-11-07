@@ -17,7 +17,7 @@ pub(super) async fn payload_for(
     after: Option<StoredObject>,
 ) -> Result<(serde_json::Value, bool)> {
     if is_purged(c, object).await? {
-        return Ok((serde_json::to_value(ChangeSet::default())?, true));
+        return Ok((serde_json::json!({ "redacted": true }), true));
     }
     Ok((serde_json::to_value(ChangeSet::new(before, after))?, false))
 }

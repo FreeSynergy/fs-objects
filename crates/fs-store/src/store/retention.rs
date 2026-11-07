@@ -104,6 +104,15 @@ pub trait HistoryRetention: Send + Sync {
         ))
     }
 
+    /// Rewrite the database file and its write-ahead log so bytes of removed entries are gone from disk
+    /// (what `purge_object` does after its commit). `Ok(true)` = done (or no file), `Ok(false)` = another
+    /// reader holds the file; nothing is lost, try again later. Default: unsupported.
+    async fn clean_files(&self) -> Result<bool> {
+        Err(Error::Backend(
+            "clean_files is not supported by this store".into(),
+        ))
+    }
+
     /// Log size figures.
     async fn log_stats(&self) -> Result<LogStats>;
 }

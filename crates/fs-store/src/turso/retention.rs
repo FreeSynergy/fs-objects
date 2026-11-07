@@ -71,6 +71,11 @@ impl HistoryRetention for TursoStore {
         self.purge(id).await
     }
 
+    async fn clean_files(&self) -> Result<bool> {
+        let inner = self.inner.lock().await;
+        self.clean_file(&inner.conn).await
+    }
+
     async fn log_stats(&self) -> Result<LogStats> {
         let inner = self.inner.lock().await;
         let rows = collect(

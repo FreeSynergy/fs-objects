@@ -30,9 +30,7 @@ pub(super) async fn migrate(c: &Connection) -> Result<()> {
             if current == 1 {
                 v1_to_v2(c).await?;
             }
-            if current < 3 {
-                v2_to_v3(c).await?;
-            }
+            v2_to_v4(c).await?;
         }
         ensure_identity(c).await?;
         c.execute_batch(INDEXES).await?;
@@ -100,10 +98,23 @@ async fn v1_to_v2(c: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// 2 -> 3: tables only (existing rows and logs read unchanged). Ids written unlogged by 0.3 cannot be
-/// told apart from objects whose log was compacted, so they are not marked; see `DESIGN.md`.
-async fn v2_to_v3(c: &Connection) -> Result<()> {
+/// 2 or 3 -> 4: tables and the `redacted` column, each only if missing (a file written by the unreleased
+/// version 3 has `unlogged_ids` and no `redacted`, a version 2 file has neither). Existing rows and logs
+/// read unchanged. Ids written unlogged by 0.3 cannot be told apart from objects whose log was compacted,
+/// so they are not marked; see `DESIGN.md`. The identity is added by `ensure_identity` right after.
+async fn v2_to_v4(c: &Connection) -> Result<()> {
     c.execute_batch(V3_TABLES).await?;
-    c.execute_batch(V3_ALTER).await?;
+    let cols = collect(
+        c,
+        "SELECT name FROM pragma_table_info('activities')",
+        vec![],
+    )
+    .await?;
+    let has_redacted = cols
+        .iter()
+        .any(|r| text(&r[0]).is_ok_and(|n| n == "redacted"));
+    if !has_redacted {
+        c.execute_batch(V3_ALTER).await?;
+    }
     Ok(())
 }

@@ -1,7 +1,7 @@
 //! The store identity kept in table `meta` (key `store_id`), outside the activity log.
 //!
-//! Pattern: Template method — `ensure_identity` is one step of the migration transaction: keep the id if
-//! there is one, otherwise make exactly one. A copy of the file keeps the row, a new file makes its own.
+//! Pattern: none (two small functions over one row): `ensure_identity` runs in the migration transaction and
+//! keeps the id if there is one, otherwise makes exactly one. A copy of the file keeps the row, a new file makes its own.
 
 use turso::{Connection, Value};
 

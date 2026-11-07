@@ -45,7 +45,11 @@ async fn removes_every_entry_of_the_object_and_only_those() {
 async fn unknown_and_second_purge_remove_nothing() {
     let s = mem().await;
     let r = s.purge_object(ObjectId::new()).await.unwrap();
-    assert_eq!(r, PurgeReport::default());
+    assert_eq!(
+        (r.removed, r.unsynced_removed, r.highest_removed),
+        (0, 0, None)
+    );
+    assert!(r.file_cleaned);
     let x = note("x", "a");
     s.put(x.clone(), ME).await.unwrap();
     assert_eq!(s.purge_object(x.envelope.id).await.unwrap().removed, 1);

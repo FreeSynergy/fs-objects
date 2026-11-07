@@ -30,7 +30,7 @@ seven is a `Store` (blanket impl). Every file is one concept, <= 200 lines (test
 | `store/purge.rs`, `turso/purge.rs` | Template method | `purge_object`: one transaction (remember high-water mark, count, delete, mark object), then checkpoint + `VACUUM` on disk stores |
 | `store/info.rs`, `turso/info.rs`, `turso/identity.rs` | Strategy (segregation) / Adapter / Template method | `StoreInfo`: who is this store, is it encrypted; the identity row is made in the migration transaction |
 | `model/store_id.rs` | Newtype | `StoreId` is not an object or activity id |
-| `store/originals.rs`, `turso/originals.rs` | Strategy (policy) / Adapter | `LargeOriginals`: draft, Turso answers `Unsupported` |
+| `store/originals.rs`, `turso/originals.rs` | Strategy (policy) / Adapter | `LargeOriginals`: draft, Turso answers `Error::Backend("... not supported")` |
 | `turso/payload.rs` | Specification | `is_purged(object)` decides whether a write logs images |
 | `turso/{objects,activities}.rs` | Repository (internal) | only modules that know the table layout |
 | `turso/query_sql.rs` | Builder (internal) | `Query` to `WHERE`/`ORDER BY` + parameters |
@@ -73,7 +73,7 @@ Version 0.4.0 (schema version 4).
 | Identity and `is_encrypted` (0.4) | done: `StoreInfo`, `StoreId`, schema version 4 |
 | Large originals (0.4) | **draft, `Unsupported`**: trait `LargeOriginals` + 4 ignored target tests, see below |
 | Remote (HTTPS) backend | not started; trait is backend-neutral |
-| Tests | see `cargo test` (about 90 incl. 4 ignored target tests for large originals); split by feature in `tests/` (crud, query, search, ordering, envelope, kinds, log, undo, retention, encryption, migration, history, props, unlogged; helpers in `tests/common`) plus unit tests for `sort_key` |
+| Tests | see `cargo test` (4 ignored target tests for large originals); split by feature in `tests/` (crud, query, search, ordering, envelope, kinds, log, undo, retention, encryption, migration, migration_v2, migration_v3, history, props, unlogged, unlogged_guard, purge, purge_ids, purge_undo, purge_redacted, identity, large_originals; helpers in `tests/common`) plus unit tests for `sort_key` |
 | Code layout (ADR 0043) | done: `src/{model,store,turso}/` trees, no file over 200 lines, `#![deny(missing_docs)]`, `Pattern:` line in every module doc |
 | Example | `cargo run -p fs-store --example contacts` imports the demo contacts (`Profile`) and events (`Event`) |
 
@@ -189,7 +189,7 @@ multi-process mode is experimental and not used: one process owns one database f
   entries were compacted, so the migration does not guess; the mark appears with the next `put_unlogged` of that id
   (ballot boxes and the guard state are rewritten constantly; a mail key only when replaced). A store that
   mixed both paths in 0.3 should call `put_unlogged` once on each such id after the upgrade.
-* Schema version 3 (tables only; version 2 files migrate in place; 0.3 cannot open a version 3 file).
+* Schema version 3 was never tagged (commit 60df691); the tables and the `redacted` column of 3 are created in the step to 4 only where missing, so a real version 3 file migrates (tested from a verbatim 60df691 schema). 0.3 cannot open a version 3 or 4 file.
 
 ## Log purge of one object (ADR 0029, 0.4)
 
@@ -197,16 +197,21 @@ multi-process mode is experimental and not used: one process owns one database f
 `Undo`, log-only extras; synced or not). The object row is untouched. One transaction; on disk stores it then runs a WAL
 checkpoint and `VACUUM` (Turso 0.8.3 ignores `secure_delete`), tested: the needle leaves the database and the WAL. The default
 method answers `Error::Backend("... not supported")`, so older implementations of the trait compile.
+`PurgeReport` is `#[non_exhaustive]` and has `file_cleaned`: the commit is what removes the entries; if the file clean-up cannot run
+(another reader holds the file, "database is locked") the call still returns `Ok` with `file_cleaned: false`, and
+`HistoryRetention::clean_files()` repeats only the clean-up (`Ok(false)` while still busy). Tested with an open read transaction.
 
 * **Undo/redo:** entries go together, so no `Undo` loses its target. Other objects' entries and their stacks are unchanged
   (tested: undo and redo on a second object across the purge, also a redo entry below a purged undo).
 * **Sync:** the hole in the middle is fine for `mark_synced` (a mark by id range) and compaction (a prefix by id). Unsynced
   entries removed are reported (`unsynced_removed`): the hub will never get them.
 * **Trap decided:** the next `put`/`delete` on a purged object would write a `before` image with the full content again.
-  The object id is therefore recorded in `purged_objects` and later writes are logged **without images**
-  (`activities.redacted = 1`, empty `ChangeSet`). Such an entry is not undoable, and the hub cannot apply it from the log; a
-  hub copy of that object must be refreshed by other means. Chosen over documenting the trap because a silent re-leak
-  defeats the purpose.
+  The object id is therefore recorded in `purged_objects` and later writes are logged **without images**. Such an entry is
+  not undoable. Its payload is exactly `{"redacted":true}`: **no `before` and no `after` key**, `kind` unchanged (a `Create`
+  stays `Create`), `Activity::is_redacted()` is true, and `Activity::change_set()` returns `Error::Invalid` for it.
+  **Hub contract:** a log entry with `payload.redacted == true` carries no object state and must **not** be read as a
+  deletion (`after` absent is not `after: null`). The consumer skips the entry and fetches the object's current copy from
+  the store (it is not applied from the log). Chosen over documenting the trap because a silent re-leak defeats the purpose.
 * **Ids:** the highest activity id ever issued is kept in `meta.activity_high` (written by purge and compaction); the last id
   after a reopen is the larger of log maximum and that mark, so `ActivityId::next_after` stays above what the hub accepted.
 * **Scope:** only this store. The hub's own log needs the same call.
@@ -219,7 +224,12 @@ activity log and not changeable by the API. A copy of the whole file set (databa
 store gets its own (tested, also that a migration makes exactly one). It is no secret but makes the server
 recognisable: it must not go to the hub, into objects or into content unless someone decided that. Use: detect two
 handles to the same store, and let programs check `is_encrypted()` (ADR 0018). Custom backends of the focused traits must
-now also implement `StoreInfo` to be a `Store`.
+now also implement `StoreInfo` to be a `Store`; the same holds for a direct `impl Store` (a break in `fs-messenger`
+`tests/report_write_fails.rs`).
+
+**Copies.** Copy the database **with** its `-wal` file, or only after the store is closed or `clean_files()` ran: the `.db` alone
+of an open store is an older state (a new identity and no objects). A restored backup or a clone of the file set carries the
+same identity as the original; two live copies are then two handles with one id, and the program has to tell them apart.
 
 ## Large originals (0.4, draft)
 

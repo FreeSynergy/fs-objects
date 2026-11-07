@@ -126,8 +126,23 @@ pub struct Activity {
 }
 
 impl Activity {
+    /// True if the entry was written without images because its object's log was purged (ADR 0029). The
+    /// payload is exactly `{"redacted":true}`, with no `before` and no `after` key. Whoever applies
+    /// the log must **not** read this as a deletion: skip the entry and fetch the object's current copy.
+    pub fn is_redacted(&self) -> bool {
+        self.payload.get("redacted") == Some(&serde_json::Value::Bool(true))
+    }
+
     /// Parse the payload as before/after images (state-changing kinds).
+    ///
+    /// A redacted entry (see [`Activity::is_redacted`]) has no images: this returns `Error::Invalid`
+    /// instead of a `ChangeSet` with `after == None`, which a reader would take for a deletion.
     pub fn change_set(&self) -> Result<ChangeSet> {
+        if self.is_redacted() {
+            return Err(Error::Invalid(
+                "activity is redacted: it has no before/after images".into(),
+            ));
+        }
         Ok(serde_json::from_value(self.payload.clone())?)
     }
 }
