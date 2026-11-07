@@ -11,7 +11,8 @@ use super::rows::{int, now, text};
 use super::sql::{collect, exec};
 use super::tx::in_tx;
 use crate::{
-    ActivityId, CompactionReport, HistoryRetention, LogStats, Result, Retention, Timestamp,
+    ActivityId, CompactionReport, HistoryRetention, LogStats, ObjectId, PurgeReport, Result,
+    Retention, Timestamp,
 };
 
 #[async_trait]
@@ -64,6 +65,10 @@ impl HistoryRetention for TursoStore {
         )
         .await?;
         Ok(n as usize)
+    }
+
+    async fn purge_object(&self, id: ObjectId) -> Result<PurgeReport> {
+        self.purge(id).await
     }
 
     async fn log_stats(&self) -> Result<LogStats> {

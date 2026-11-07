@@ -52,3 +52,47 @@ pub fn key() -> EncryptionKey {
         key: (0u8..32).collect(),
     }
 }
+
+/// The whole activity log as JSON text (to look for content in it).
+pub async fn log_text(s: &TursoStore) -> String {
+    let all = s.activities(&ActivityFilter::default()).await.unwrap();
+    serde_json::to_string(&all).unwrap()
+}
+
+/// How often `needle` occurs in every file of `dir` (database and write-ahead log).
+pub fn needle_in_files(dir: &std::path::Path, needle: &str) -> usize {
+    let mut n = 0;
+    for e in std::fs::read_dir(dir).unwrap() {
+        let b = std::fs::read(e.unwrap().path()).unwrap();
+        n += b
+            .windows(needle.len())
+            .filter(|w| *w == needle.as_bytes())
+            .count();
+    }
+    n
+}
+
+/// A note whose content is `text`.
+pub fn note(name: &str, text: &str) -> StoredObject {
+    let mut o = obj("Note", name);
+    o.content = serde_json::json!({ "t": text });
+    o
+}
+
+/// Raw SQL on a closed database file (rows of the first column as text).
+pub async fn raw_sql(path: &std::path::Path, sql: &str) -> Vec<String> {
+    let db = turso::Builder::new_local(path.to_str().unwrap())
+        .build()
+        .await
+        .unwrap();
+    let c = db.connect().unwrap();
+    let mut rows = c.query(sql, ()).await.unwrap();
+    let mut out = vec![];
+    while let Some(r) = rows.next().await.unwrap() {
+        out.push(match r.get_value(0).unwrap() {
+            turso::Value::Text(t) => t,
+            v => format!("{v:?}"),
+        });
+    }
+    out
+}

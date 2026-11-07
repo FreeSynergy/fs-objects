@@ -7,7 +7,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::{ActivityId, Result, Timestamp};
+use crate::{ActivityId, Error, ObjectId, PurgeReport, Result, Timestamp};
 
 /// Undo-history retention (ADR 0042 point 10). `None` = unlimited in that dimension.
 ///
@@ -90,6 +90,19 @@ pub trait HistoryRetention: Send + Sync {
     /// Mark all entries with id <= `up_to` as synced (acknowledged by the hub).
     /// Returns the number of entries newly marked.
     async fn mark_synced(&self, up_to: ActivityId) -> Result<usize>;
+
+    /// Remove **every** log entry of one object (ADR 0029: an object marked sensitive afterwards must not
+    /// keep its old content in a log): `Create`, `Update`, `Delete`, `Undo` and log-only extras, synced or
+    /// not. The object itself is not touched. Undo and redo: the entries go together, so no `Undo` is left
+    /// without its target, and the other objects' undo and redo entries stay as they were. Later writes on
+    /// the object are logged **without images** and are not undoable. Touches only this store; the hub's own
+    /// log needs the same call. Default: unsupported, so existing implementations keep compiling.
+    async fn purge_object(&self, id: ObjectId) -> Result<PurgeReport> {
+        let _ = id;
+        Err(Error::Backend(
+            "purge_object is not supported by this store".into(),
+        ))
+    }
 
     /// Log size figures.
     async fn log_stats(&self) -> Result<LogStats>;

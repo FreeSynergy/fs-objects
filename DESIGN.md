@@ -26,6 +26,8 @@ six is a `Store` (blanket impl). Every file is one concept, <= 200 lines (tests 
 | `turso/migration.rs` | Template method | detect version, run the matching step in one transaction |
 | `turso/open.rs` | Factory | file / in-memory / with options |
 | `turso/encryption.rs`, `crypto.rs` | Strategy | `KeyProvider` supplies the key; Turso page encryption is applied |
+| `store/purge.rs`, `turso/purge.rs` | Template method | `purge_object`: one transaction (remember high-water mark, count, delete, mark object), then checkpoint + `VACUUM` on disk stores |
+| `turso/payload.rs` | Specification | `is_purged(object)` decides whether a write logs images |
 | `turso/{objects,activities}.rs` | Repository (internal) | only modules that know the table layout |
 | `turso/query_sql.rs` | Builder (internal) | `Query` to `WHERE`/`ORDER BY` + parameters |
 | `turso/{codec,rows,sql}.rs` | Adapter | foreign rows/values to typed model |
@@ -180,3 +182,23 @@ multi-process mode is experimental and not used: one process owns one database f
   (ballot boxes and the guard state are rewritten constantly; a mail key only when replaced). A store that
   mixed both paths in 0.3 should call `put_unlogged` once on each such id after the upgrade.
 * Schema version 3 (tables only; version 2 files migrate in place; 0.3 cannot open a version 3 file).
+
+## Log purge of one object (ADR 0029, 0.4)
+
+`HistoryRetention::purge_object(id) -> PurgeReport` removes **every** log entry of the object (`Create`, `Update`, `Delete`,
+`Undo`, log-only extras; synced or not). The object row is untouched. One transaction; on disk stores it then runs a WAL
+checkpoint and `VACUUM` (Turso 0.8.3 ignores `secure_delete`), tested: the needle leaves the database and the WAL. The default
+method answers `Error::Backend("... not supported")`, so older implementations of the trait compile.
+
+* **Undo/redo:** entries go together, so no `Undo` loses its target. Other objects' entries and their stacks are unchanged
+  (tested: undo and redo on a second object across the purge, also a redo entry below a purged undo).
+* **Sync:** the hole in the middle is fine for `mark_synced` (a mark by id range) and compaction (a prefix by id). Unsynced
+  entries removed are reported (`unsynced_removed`): the hub will never get them.
+* **Trap decided:** the next `put`/`delete` on a purged object would write a `before` image with the full content again.
+  The object id is therefore recorded in `purged_objects` and later writes are logged **without images**
+  (`activities.redacted = 1`, empty `ChangeSet`). Such an entry is not undoable, and the hub cannot apply it from the log; a
+  hub copy of that object must be refreshed by other means. Chosen over documenting the trap because a silent re-leak
+  defeats the purpose.
+* **Ids:** the highest activity id ever issued is kept in `meta.activity_high` (written by purge and compaction); the last id
+  after a reopen is the larger of log maximum and that mark, so `ActivityId::next_after` stays above what the hub accepted.
+* **Scope:** only this store. The hub's own log needs the same call.

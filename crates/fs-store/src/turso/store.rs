@@ -9,11 +9,12 @@ use std::sync::atomic::AtomicBool;
 use tokio::sync::{Mutex, broadcast};
 use turso::Connection;
 
-use super::activities::insert_activity;
+use super::activities::{insert_activity, mark_redacted};
 use super::objects::{remove_object, write_object};
+use super::payload::payload_for;
 use super::rows::now;
 use super::schema::SCHEMA_VERSION;
-use crate::{Activity, ActivityId, ActivityKind, ChangeSet, Error, ObjectId, Result, StoredObject};
+use crate::{Activity, ActivityId, ActivityKind, Error, ObjectId, Result, StoredObject};
 
 /// Connection plus the last issued activity id (guarded by one mutex).
 pub(super) struct Inner {
@@ -31,6 +32,8 @@ pub struct TursoStore {
     pub(super) allow_sensitive_unencrypted: bool,
     pub(super) fail_before_activity: AtomicBool,
     pub(super) fail_before_extra: AtomicBool,
+    pub(super) fail_in_purge: AtomicBool,
+    pub(super) on_disk: bool,
 }
 
 /// One state change of an object, to be written with its activity.
@@ -74,6 +77,7 @@ impl TursoStore {
         }
         self.check_fault()?;
         let id = ActivityId::next_after(inner.last_activity);
+        let (payload, redacted) = payload_for(&inner.conn, ch.object, ch.before, ch.after).await?;
         let act = Activity {
             id,
             kind: ch.kind,
@@ -81,10 +85,13 @@ impl TursoStore {
             actor: actor.to_string(),
             at: now(),
             target: ch.target,
-            payload: serde_json::to_value(ChangeSet::new(ch.before, ch.after))?,
+            payload,
             synced: false,
         };
         insert_activity(&inner.conn, &act).await?;
+        if redacted {
+            mark_redacted(&inner.conn, id).await?;
+        }
         inner.last_activity = Some(id);
         Ok(act)
     }

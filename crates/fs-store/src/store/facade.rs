@@ -11,8 +11,8 @@ use tokio::sync::broadcast;
 
 use crate::{
     Activity, ActivityFilter, ActivityId, ActivityKind, ActivityLog, ChangeFeed, CompactionReport,
-    HistoryRetention, LogEntry, LogStats, ObjectId, ObjectQuery, ObjectRepository, Query, Result,
-    Retention, StoredObject, Timestamp, UndoRedo, UndoState,
+    HistoryRetention, LogEntry, LogStats, ObjectId, ObjectQuery, ObjectRepository, PurgeReport,
+    Query, Result, Retention, StoredObject, Timestamp, UndoRedo, UndoState,
 };
 
 /// Object store: objects + append-only activity log, every change atomic with its log entry.
@@ -70,6 +70,13 @@ pub trait Store: Send + Sync {
     async fn mark_synced(&self, up_to: ActivityId) -> Result<usize>;
     /// See [`HistoryRetention::log_stats`].
     async fn log_stats(&self) -> Result<LogStats>;
+    /// See [`HistoryRetention::purge_object`]. Default: unsupported.
+    async fn purge_object(&self, id: ObjectId) -> Result<PurgeReport> {
+        let _ = id;
+        Err(crate::Error::Backend(
+            "purge_object is not supported by this store".into(),
+        ))
+    }
 }
 
 #[async_trait]
@@ -144,5 +151,8 @@ where
     }
     async fn log_stats(&self) -> Result<LogStats> {
         HistoryRetention::log_stats(self).await
+    }
+    async fn purge_object(&self, id: ObjectId) -> Result<PurgeReport> {
+        HistoryRetention::purge_object(self, id).await
     }
 }

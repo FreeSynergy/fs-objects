@@ -7,6 +7,7 @@ use chrono::Duration as ChronoDuration;
 use turso::Value;
 
 use super::TursoStore;
+use super::activities::remember_high_water;
 use super::rows::{int, opt_text};
 use super::sql::{collect, exec};
 use super::tx::in_tx;
@@ -28,6 +29,7 @@ impl TursoStore {
         let inner = self.inner.lock().await;
         let c = &inner.conn;
         in_tx(c, async {
+            remember_high_water(c).await?;
             // Highest id that is outside retention; everything up to it is eligible (a prefix).
             let mut cut: Option<String> = None;
             let mut bump = |cand: Option<String>| {

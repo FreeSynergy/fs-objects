@@ -37,9 +37,11 @@ CREATE TABLE IF NOT EXISTS activities (
     at INTEGER NOT NULL,
     target TEXT,
     payload TEXT NOT NULL,
-    synced INTEGER NOT NULL DEFAULT 0
+    synced INTEGER NOT NULL DEFAULT 0,
+    redacted INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS unlogged_ids (object_id TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS purged_objects (object_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS index_fields (
     object_id TEXT NOT NULL,
     key TEXT NOT NULL,
@@ -51,7 +53,12 @@ CREATE TABLE IF NOT EXISTS index_fields (
 /// Tables added in version 3 (also run by the migration from 1 and 2).
 pub(super) const V3_TABLES: &str = "
 CREATE TABLE IF NOT EXISTS unlogged_ids (object_id TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS purged_objects (object_id TEXT PRIMARY KEY);
 ";
+
+/// Column added to `activities` in version 3 (the migration from 1 and 2 runs it).
+pub(super) const V3_ALTER: &str =
+    "ALTER TABLE activities ADD COLUMN redacted INTEGER NOT NULL DEFAULT 0;";
 
 /// Indexes (all `IF NOT EXISTS`; run after the tables/columns exist, also by the migration).
 pub(super) const INDEXES: &str = "

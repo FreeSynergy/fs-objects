@@ -41,7 +41,10 @@ impl TursoStore {
     }
 
     async fn open_raw(path: &str, opts: OpenOptions) -> Result<Self> {
-        let (b, encrypted) = encryption::configure(turso::Builder::new_local(path), &opts)?;
+        let (b, encrypted) = encryption::configure(
+            turso::Builder::new_local(path).experimental_vacuum(true),
+            &opts,
+        )?;
         let db = b.build().await?;
         let conn = db.connect()?;
         migrate(&conn).await?;
@@ -58,6 +61,8 @@ impl TursoStore {
             allow_sensitive_unencrypted: opts.allow_sensitive_unencrypted,
             fail_before_activity: AtomicBool::new(false),
             fail_before_extra: AtomicBool::new(false),
+            fail_in_purge: AtomicBool::new(false),
+            on_disk: path != ":memory:",
         })
     }
 }

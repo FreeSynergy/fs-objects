@@ -6,7 +6,7 @@
 use turso::{Connection, Value};
 
 use super::rows::{opt_int, text};
-use super::schema::{INDEXES, SCHEMA, SCHEMA_VERSION, V3_TABLES};
+use super::schema::{INDEXES, SCHEMA, SCHEMA_VERSION, V3_ALTER, V3_TABLES};
 use super::sql::{collect, exec};
 use super::tx::in_tx;
 use crate::{Error, Result, sort_key};
@@ -100,5 +100,6 @@ async fn v1_to_v2(c: &Connection) -> Result<()> {
 /// told apart from objects whose log was compacted, so they are not marked; see `DESIGN.md`.
 async fn v2_to_v3(c: &Connection) -> Result<()> {
     c.execute_batch(V3_TABLES).await?;
+    c.execute_batch(V3_ALTER).await?;
     Ok(())
 }

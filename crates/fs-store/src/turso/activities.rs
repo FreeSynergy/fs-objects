@@ -47,7 +47,7 @@ pub(super) async fn load_steps(c: &Connection, actor: &str) -> Result<Vec<Step>>
     let rows = collect(
         c,
         "SELECT id, kind, target FROM activities \
-         WHERE actor = ? AND kind IN ('Create','Update','Delete','Undo') ORDER BY id",
+         WHERE actor = ? AND redacted = 0 AND kind IN ('Create','Update','Delete','Undo') ORDER BY id",
         vec![Value::Text(actor.into())],
     )
     .await?;
@@ -62,11 +62,44 @@ pub(super) async fn load_steps(c: &Connection, actor: &str) -> Result<Vec<Step>>
         .collect()
 }
 
-/// Highest activity id in the log, if any.
+/// Highest activity id ever handed out: the log's maximum or the remembered high-water mark, whichever
+/// is higher (purge and compaction can remove the newest entry; the hub has already accepted its id).
 pub(super) async fn last_activity_id(c: &Connection) -> Result<Option<ActivityId>> {
-    let rows = collect(c, "SELECT MAX(id) FROM activities", vec![]).await?;
-    match rows.first().and_then(|r| r.first()) {
-        Some(Value::Text(s)) => Ok(Some(s.parse()?)),
-        _ => Ok(None),
+    let mut best: Option<ActivityId> = None;
+    for sql in [
+        "SELECT MAX(id) FROM activities",
+        "SELECT value FROM meta WHERE key = 'activity_high'",
+    ] {
+        let rows = collect(c, sql, vec![]).await?;
+        if let Some(Value::Text(s)) = rows.first().and_then(|r| r.first()) {
+            let id: ActivityId = s.parse()?;
+            best = best.max(Some(id));
+        }
     }
+    Ok(best)
+}
+
+/// Remember the current highest activity id before entries are removed, so a reopen cannot hand it out again.
+pub(super) async fn remember_high_water(c: &Connection) -> Result<()> {
+    if let Some(h) = last_activity_id(c).await? {
+        exec(c, "DELETE FROM meta WHERE key = 'activity_high'", vec![]).await?;
+        exec(
+            c,
+            "INSERT INTO meta (key, value) VALUES ('activity_high', ?)",
+            vec![Value::Text(h.to_string())],
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// Mark an inserted activity as written without images (see `purge`).
+pub(super) async fn mark_redacted(c: &Connection, id: ActivityId) -> Result<()> {
+    exec(
+        c,
+        "UPDATE activities SET redacted = 1 WHERE id = ?",
+        vec![Value::Text(id.to_string())],
+    )
+    .await?;
+    Ok(())
 }

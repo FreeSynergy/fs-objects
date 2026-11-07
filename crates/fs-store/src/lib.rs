@@ -40,8 +40,8 @@ pub use model::{
     ObjectId, StoredObject, Timestamp,
 };
 pub use store::{
-    ActivityFilter, CompactionReport, Cond, LogEntry, LogStats, Op, Order, Query, Retention, Store,
-    TimeField, UndoState,
+    ActivityFilter, CompactionReport, Cond, LogEntry, LogStats, Op, Order, PurgeReport, Query,
+    Retention, Store, TimeField, UndoState,
 };
 pub(crate) use store::{
     ActivityLog, ChangeFeed, HistoryRetention, ObjectQuery, ObjectRepository, UndoRedo,

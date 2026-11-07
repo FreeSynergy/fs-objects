@@ -22,6 +22,19 @@ impl TursoStore {
         self.fail_before_extra.store(on, Ordering::SeqCst);
     }
 
+    /// Test hook: make the next purge fail after it removed the entries but before it commits.
+    #[doc(hidden)]
+    pub fn inject_fault_in_purge(&self, on: bool) {
+        self.fail_in_purge.store(on, Ordering::SeqCst);
+    }
+
+    pub(super) fn check_purge_fault(&self) -> Result<()> {
+        if self.fail_in_purge.swap(false, Ordering::SeqCst) {
+            return Err(Error::Backend("injected fault".into()));
+        }
+        Ok(())
+    }
+
     pub(super) fn check_fault(&self) -> Result<()> {
         if self.fail_before_activity.swap(false, Ordering::SeqCst) {
             return Err(Error::Backend("injected fault".into()));

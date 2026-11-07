@@ -14,6 +14,8 @@ mod migration;
 mod objects;
 mod open;
 mod options;
+mod payload;
+mod purge;
 mod query_impl;
 mod query_sql;
 mod repository;
