@@ -2,8 +2,8 @@
 //!
 //! Pattern: none (declarative data) — kept apart so the migration can reuse it.
 
-/// Current schema version (table `schema_version`). 1 = fs-store 0.1 (no version table), 2 = 0.2/0.3, 3 = 0.4.
-pub const SCHEMA_VERSION: i64 = 3;
+/// Current schema version (table `schema_version`). 1 = fs-store 0.1 (no version table), 2 = 0.2/0.3, 3 = unreleased (purge, unlogged marks), 4 = 0.4 (store identity).
+pub const SCHEMA_VERSION: i64 = 4;
 
 pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);

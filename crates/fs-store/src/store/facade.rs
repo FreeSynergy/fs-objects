@@ -1,10 +1,10 @@
 //! The [`Store`] facade: the whole object store as one trait.
 //!
-//! Pattern: Facade — `Store` re-exposes the six focused traits ([`ObjectRepository`],
-//! [`ObjectQuery`], [`ActivityLog`], [`ChangeFeed`], [`UndoRedo`], [`HistoryRetention`]) under one
+//! Pattern: Facade — `Store` re-exposes the seven focused traits ([`ObjectRepository`],
+//! [`ObjectQuery`], [`ActivityLog`], [`ChangeFeed`], [`UndoRedo`], [`HistoryRetention`], [`StoreInfo`]) under one
 //! name, so dependents keep writing `Arc<dyn Store>` and `use fs_store::Store` while small
 //! consumers can depend on just the trait they need. It is blanket-implemented: any type that
-//! implements the six traits is a `Store`, and its methods are callable with only `Store` in scope.
+//! implements the seven traits is a `Store`, and its methods are callable with only `Store` in scope.
 
 use async_trait::async_trait;
 use tokio::sync::broadcast;
@@ -12,7 +12,7 @@ use tokio::sync::broadcast;
 use crate::{
     Activity, ActivityFilter, ActivityId, ActivityKind, ActivityLog, ChangeFeed, CompactionReport,
     HistoryRetention, LogEntry, LogStats, ObjectId, ObjectQuery, ObjectRepository, PurgeReport,
-    Query, Result, Retention, StoredObject, Timestamp, UndoRedo, UndoState,
+    Query, Result, Retention, StoreId, StoreInfo, StoredObject, Timestamp, UndoRedo, UndoState,
 };
 
 /// Object store: objects + append-only activity log, every change atomic with its log entry.
@@ -70,6 +70,10 @@ pub trait Store: Send + Sync {
     async fn mark_synced(&self, up_to: ActivityId) -> Result<usize>;
     /// See [`HistoryRetention::log_stats`].
     async fn log_stats(&self) -> Result<LogStats>;
+    /// See [`StoreInfo::identity`].
+    fn identity(&self) -> StoreId;
+    /// See [`StoreInfo::is_encrypted`].
+    fn is_encrypted(&self) -> bool;
     /// See [`HistoryRetention::purge_object`]. Default: unsupported.
     async fn purge_object(&self, id: ObjectId) -> Result<PurgeReport> {
         let _ = id;
@@ -82,7 +86,13 @@ pub trait Store: Send + Sync {
 #[async_trait]
 impl<T> Store for T
 where
-    T: ObjectRepository + ObjectQuery + ActivityLog + ChangeFeed + UndoRedo + HistoryRetention,
+    T: ObjectRepository
+        + ObjectQuery
+        + ActivityLog
+        + ChangeFeed
+        + UndoRedo
+        + HistoryRetention
+        + StoreInfo,
 {
     async fn put(&self, object: StoredObject, actor: &str) -> Result<Activity> {
         ObjectRepository::put(self, object, actor).await
@@ -151,6 +161,12 @@ where
     }
     async fn log_stats(&self) -> Result<LogStats> {
         HistoryRetention::log_stats(self).await
+    }
+    fn identity(&self) -> StoreId {
+        StoreInfo::identity(self)
+    }
+    fn is_encrypted(&self) -> bool {
+        StoreInfo::is_encrypted(self)
     }
     async fn purge_object(&self, id: ObjectId) -> Result<PurgeReport> {
         HistoryRetention::purge_object(self, id).await

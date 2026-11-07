@@ -5,6 +5,7 @@
 
 use turso::{Connection, Value};
 
+use super::identity::ensure_identity;
 use super::rows::{opt_int, text};
 use super::schema::{INDEXES, SCHEMA, SCHEMA_VERSION, V3_ALTER, V3_TABLES};
 use super::sql::{collect, exec};
@@ -29,8 +30,11 @@ pub(super) async fn migrate(c: &Connection) -> Result<()> {
             if current == 1 {
                 v1_to_v2(c).await?;
             }
-            v2_to_v3(c).await?;
+            if current < 3 {
+                v2_to_v3(c).await?;
+            }
         }
+        ensure_identity(c).await?;
         c.execute_batch(INDEXES).await?;
         exec(c, "DELETE FROM schema_version", vec![]).await?;
         exec(

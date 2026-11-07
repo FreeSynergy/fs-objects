@@ -5,10 +5,11 @@ they use the `Store` trait. The first backend is `TursoStore` (embedded `turso` 
 
 ## Structure and pattern map (ADR 0043)
 
-`Store` is a **facade** over six focused traits (module `fs_store::traits`): `ObjectRepository` (put, put_and_log,
+`Store` is a **facade** over seven focused traits (module `fs_store::traits`): `ObjectRepository` (put, put_and_log,
 get, delete), `ObjectQuery` (query, count), `ActivityLog` (log, activities), `ChangeFeed` (subscribe), `UndoRedo`
-(undo, redo, undo_state), `HistoryRetention` (retention, compaction, mark_synced, log_stats). Any type implementing all
-six is a `Store` (blanket impl). Every file is one concept, <= 200 lines (tests included).
+(undo, redo, undo_state), `HistoryRetention` (retention, compaction, mark_synced, purge_object, log_stats), `StoreInfo`
+(identity, is_encrypted). Any type implementing all
+seven is a `Store` (blanket impl). Every file is one concept, <= 200 lines (tests included).
 
 | Module | Pattern | Why |
 |---|---|---|
@@ -27,6 +28,9 @@ six is a `Store` (blanket impl). Every file is one concept, <= 200 lines (tests 
 | `turso/open.rs` | Factory | file / in-memory / with options |
 | `turso/encryption.rs`, `crypto.rs` | Strategy | `KeyProvider` supplies the key; Turso page encryption is applied |
 | `store/purge.rs`, `turso/purge.rs` | Template method | `purge_object`: one transaction (remember high-water mark, count, delete, mark object), then checkpoint + `VACUUM` on disk stores |
+| `store/info.rs`, `turso/info.rs`, `turso/identity.rs` | Strategy (segregation) / Adapter / Template method | `StoreInfo`: who is this store, is it encrypted; the identity row is made in the migration transaction |
+| `model/store_id.rs` | Newtype | `StoreId` is not an object or activity id |
+| `store/originals.rs`, `turso/originals.rs` | Strategy (policy) / Adapter | `LargeOriginals`: draft, Turso answers `Unsupported` |
 | `turso/payload.rs` | Specification | `is_purged(object)` decides whether a write logs images |
 | `turso/{objects,activities}.rs` | Repository (internal) | only modules that know the table layout |
 | `turso/query_sql.rs` | Builder (internal) | `Query` to `WHERE`/`ORDER BY` + parameters |
@@ -43,7 +47,7 @@ for the same concrete type in one scope (calls become ambiguous); use `dyn Objec
 
 ## State
 
-Version 0.3.0.
+Version 0.4.0 (schema version 4).
 
 | Area | State |
 |---|---|
@@ -65,8 +69,11 @@ Version 0.3.0.
 | Sensitive data (ADR 0029) | envelope carries DPV categories; unencrypted store refuses sensitive objects unless opted out. No auto-link logic here (hub concern) |
 | Hub sync | only the data side: `activities(unsynced_only / after)` + `mark_synced`. No IPC (belongs to fs-hub) |
 | `UnloggedObjects` (0.3): `put_unlogged`, `read_unlogged`, `delete_unlogged`: no activity at any moment, no event, no undo, times as given. A separate trait, not part of `Store`; for anonymous ballots (`fs-surveys`). Old pages can stay on disk until reused. **0.4: the logged calls (`put`, `put_and_log`, `delete`, `get`, `query`, `log`) refuse an id written through it** (`Error::Invalid`, table `unlogged_ids`, kept after a delete) | done |
+| Log purge (0.4) | done, see "Log purge of one object" |
+| Identity and `is_encrypted` (0.4) | done: `StoreInfo`, `StoreId`, schema version 4 |
+| Large originals (0.4) | **draft, `Unsupported`**: trait `LargeOriginals` + 4 ignored target tests, see below |
 | Remote (HTTPS) backend | not started; trait is backend-neutral |
-| Tests | 43, split by feature in `tests/` (crud, query, search, ordering, envelope, kinds, log, undo, retention, encryption, migration, history, props, unlogged; helpers in `tests/common`) plus unit tests for `sort_key` |
+| Tests | see `cargo test` (about 90 incl. 4 ignored target tests for large originals); split by feature in `tests/` (crud, query, search, ordering, envelope, kinds, log, undo, retention, encryption, migration, history, props, unlogged; helpers in `tests/common`) plus unit tests for `sort_key` |
 | Code layout (ADR 0043) | done: `src/{model,store,turso}/` trees, no file over 200 lines, `#![deny(missing_docs)]`, `Pattern:` line in every module doc |
 | Example | `cargo run -p fs-store --example contacts` imports the demo contacts (`Profile`) and events (`Event`) |
 
@@ -84,13 +91,14 @@ Version 0.3.0.
 
 ## Schema (Turso)
 
-* `schema_version(version)` - one row, currently 2 (1 = 0.1, which had no table).
+* `schema_version(version)` - one row, currently 4 (1 = 0.1, which had no table; 2 = 0.2/0.3; 3 = unreleased, purge and unlogged marks; 4 = 0.4, store identity).
 * `objects(id PK, iri, type, name, context, attributed_to, in_reply_to, published, updated, content_type, content JSON,
   original BLOB, original_type, addressing JSON, sensitive JSON, describes, start_time, end_time, name_sort)`
 * `activities(id PK UUIDv7, kind, object_id, actor, at, target, payload JSON, synced)` - append-only except for compaction
   and the `synced` flag.
 * `index_fields(object_id, key, value, value_norm)` - multi-valued extracted columns (emails, phones, uid, ...); `value_norm` is the search key.
-* `meta(key, value)` - retention policy.
+* `meta(key, value)` - retention policy, `store_id` (identity), `activity_high` (highest activity id ever issued).
+* `unlogged_ids`, `purged_objects` - marks for the unlogged guard and the log purge.
 
 ## Search, ranges and ordering (0.2)
 
@@ -202,3 +210,30 @@ method answers `Error::Backend("... not supported")`, so older implementations o
 * **Ids:** the highest activity id ever issued is kept in `meta.activity_high` (written by purge and compaction); the last id
   after a reopen is the larger of log maximum and that mark, so `ActivityId::next_after` stays above what the hub accepted.
 * **Scope:** only this store. The hub's own log needs the same call.
+
+## Store identity (0.4)
+
+`StoreInfo::identity() -> StoreId` (a random UUIDv4, no creation time) and `is_encrypted()`. The id is made once, in the
+migration transaction that creates the database (or lifts a version 2/3 file to 4), kept in `meta.store_id`, never in the
+activity log and not changeable by the API. A copy of the whole file set (database and write-ahead log) keeps it; a new
+store gets its own (tested, also that a migration makes exactly one). It is no secret but makes the server
+recognisable: it must not go to the hub, into objects or into content unless someone decided that. Use: detect two
+handles to the same store, and let programs check `is_encrypted()` (ADR 0018). Custom backends of the focused traits must
+now also implement `StoreInfo` to be a `Store`.
+
+## Large originals (0.4, draft)
+
+Measured by Thread 2: a 5 MiB message costs 6.9 MiB of log (the original is base64 in the `Create`/`Delete` image).
+**Design:**
+* Table `blobs(hash PK, media_type, size, bytes)`, hash = SHA-256 (the crate already has `sha2`). An original of at least
+  the threshold (`LargeOriginals::set_original_threshold`) is written once there; the object row and the log images carry
+  an `OriginalRef {hash, size, media_type}` instead of the bytes. Equal bytes are stored once. `get` resolves the reference.
+* The index fields are left out of the images (they are derived from the content and rebuilt on undo).
+* **Delete / undo:** a deleted object's blob stays while a log entry references it, so undoing the `Delete` restores the
+  original. **Log purge / compaction:** after removing entries, blobs with no object row and no remaining entry are deleted
+  in the same transaction (then the purge's `VACUUM`). **Immutability (ADR 0030)** is unchanged: same hash means same original.
+* **Encryption:** only on an encrypted store; a plain store refuses a threshold (`Error::Invalid`), so a shared blob
+  table never holds content the purge cannot reach in a store without file encryption.
+* **Not built:** the Turso backend implements nothing yet; every method answers `Error::Backend("... not supported ...")`.
+  The four target tests in `tests/large_originals.rs` are `#[ignore]` and fail until it exists. Open:
+  the threshold applies to originals written afterwards only.

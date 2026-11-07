@@ -7,6 +7,6 @@
 //! focused traits only where you do not import `Store`.
 
 pub use crate::store::{
-    ActivityLog, ChangeFeed, HistoryRetention, ObjectQuery, ObjectRepository, UndoRedo,
-    UnloggedObjects,
+    ActivityLog, ChangeFeed, HistoryRetention, LargeOriginals, ObjectQuery, ObjectRepository,
+    StoreInfo, UndoRedo, UnloggedObjects,
 };

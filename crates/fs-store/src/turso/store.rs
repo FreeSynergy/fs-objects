@@ -14,7 +14,7 @@ use super::objects::{remove_object, write_object};
 use super::payload::payload_for;
 use super::rows::now;
 use super::schema::SCHEMA_VERSION;
-use crate::{Activity, ActivityId, ActivityKind, Error, ObjectId, Result, StoredObject};
+use crate::{Activity, ActivityId, ActivityKind, Error, ObjectId, Result, StoreId, StoredObject};
 
 /// Connection plus the last issued activity id (guarded by one mutex).
 pub(super) struct Inner {
@@ -34,6 +34,7 @@ pub struct TursoStore {
     pub(super) fail_before_extra: AtomicBool,
     pub(super) fail_in_purge: AtomicBool,
     pub(super) on_disk: bool,
+    pub(super) identity: StoreId,
 }
 
 /// One state change of an object, to be written with its activity.

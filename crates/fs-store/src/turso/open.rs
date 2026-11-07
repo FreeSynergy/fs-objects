@@ -11,6 +11,7 @@ use tokio::sync::{Mutex, broadcast};
 use super::TursoStore;
 use super::activities::last_activity_id;
 use super::encryption;
+use super::identity::read_identity;
 use super::migration::migrate;
 use super::options::OpenOptions;
 use super::store::Inner;
@@ -48,6 +49,7 @@ impl TursoStore {
         let db = b.build().await?;
         let conn = db.connect()?;
         migrate(&conn).await?;
+        let identity = read_identity(&conn).await?;
         let last_activity = last_activity_id(&conn).await?;
         let (tx, _) = broadcast::channel(opts.subscribe_capacity.max(1));
         Ok(Self {
@@ -63,6 +65,7 @@ impl TursoStore {
             fail_before_extra: AtomicBool::new(false),
             fail_in_purge: AtomicBool::new(false),
             on_disk: path != ":memory:",
+            identity,
         })
     }
 }

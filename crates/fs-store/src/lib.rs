@@ -37,11 +37,11 @@ pub use crypto::{Cipher, EncryptionKey, KeyProvider, StaticKeyProvider};
 pub use error::{Error, Result};
 pub use model::{
     Activity, ActivityId, ActivityKind, Blob, ChangeSet, DpvCategory, Envelope, IndexFields,
-    ObjectId, StoredObject, Timestamp,
+    ObjectId, StoreId, StoredObject, Timestamp,
 };
 pub use store::{
-    ActivityFilter, CompactionReport, Cond, LogEntry, LogStats, Op, Order, PurgeReport, Query,
-    Retention, Store, TimeField, UndoState,
+    ActivityFilter, CompactionReport, Cond, LargeOriginals, LogEntry, LogStats, Op, Order,
+    OriginalRef, PurgeReport, Query, Retention, Store, StoreInfo, TimeField, UndoState,
 };
 pub(crate) use store::{
     ActivityLog, ChangeFeed, HistoryRetention, ObjectQuery, ObjectRepository, UndoRedo,
