@@ -1,11 +1,11 @@
-# fs-store – Design
+# fs-objects – Design
 
-`fs-store` is the object store every FreeSynergy program embeds (ADR 0019). Programs never speak SQL or Turso;
+`fs-objects` is the object store every FreeSynergy program embeds (ADR 0019). Programs never speak SQL or Turso;
 they use the `Store` trait. The first backend is `TursoStore` (embedded `turso` crate, **no Turso sync**).
 
 ## Structure and pattern map (ADR 0043)
 
-`Store` is a **facade** over seven focused traits (module `fs_store::traits`): `ObjectRepository` (put, put_and_log,
+`Store` is a **facade** over seven focused traits (module `fs_objects::traits`): `ObjectRepository` (put, put_and_log,
 get, delete), `ObjectQuery` (query, count), `ActivityLog` (log, activities), `ChangeFeed` (subscribe), `UndoRedo`
 (undo, redo, undo_state), `HistoryRetention` (retention, compaction, mark_synced, purge_object, log_stats), `StoreInfo`
 (identity, is_encrypted). Any type implementing all
@@ -43,7 +43,7 @@ seven is a `Store` (blanket impl). Every file is one concept, <= 200 lines (test
 ## Migration for dependents
 
 None required: `Store`, `TursoStore`, `Query`, ... keep their paths and signatures; fs-contacts, fs-calendar, fs-maps
-and fs-hub compile unchanged. New: the focused traits in `fs_store::traits`. Do not import `Store` and a focused trait
+and fs-hub compile unchanged. New: the focused traits in `fs_objects::traits`. Do not import `Store` and a focused trait
 for the same concrete type in one scope (calls become ambiguous); use `dyn ObjectQuery` etc. for narrow dependencies.
 
 ## State
@@ -53,7 +53,7 @@ Version 0.4.0 (schema version 4).
 | Area | State |
 |---|---|
 | Types: `ObjectId`/`ActivityId` (UUIDv7), `Envelope`, `StoredObject`, `Blob`, `Activity`, `ChangeSet` | done |
-| `Store` trait (async, `async-trait`, object-safe) | done; since the ADR 0043 refactor a facade over six focused traits (`fs_store::traits`) |
+| `Store` trait (async, `async-trait`, object-safe) | done; since the ADR 0043 refactor a facade over six focused traits (`fs_objects::traits`) |
 | `TursoStore` (file or in-memory) | done, `turso = "=0.8.3"` pinned (default features off: no mimalloc, no tantivy FTS) |
 | Atomic object change + activity | done, one `BEGIN IMMEDIATE` transaction; rollback test via fault injection |
 | `put_and_log(object, actor, extra)` (0.2) | done: `Create`/`Update` plus any number of log-only extras (`Accept`, `TentativeAccept`, ...) in one transaction; fault-injection test (`inject_fault_before_extra`) proves all-or-nothing, nothing published on failure |
@@ -76,7 +76,7 @@ Version 0.4.0 (schema version 4).
 | Remote (HTTPS) backend | not started; trait is backend-neutral |
 | Tests | see `cargo test` (4 ignored target tests for large originals); split by feature in `tests/` (crud, query, search, ordering, envelope, kinds, log, undo, retention, encryption, migration, migration_v2, migration_v3, history, props, unlogged, unlogged_guard, purge, purge_ids, purge_undo, purge_redacted, identity, large_originals; helpers in `tests/common`) plus unit tests for `sort_key` |
 | Code layout (ADR 0043) | done: `src/{model,store,turso}/` trees, no file over 200 lines, `#![deny(missing_docs)]`, `Pattern:` line in every module doc |
-| Example | `cargo run -p fs-store --example contacts` imports the demo contacts (`Profile`) and events (`Event`) |
+| Example | `cargo run -p fs-objects --example contacts` imports the demo contacts (`Profile`) and events (`Event`) |
 
 ## Object model (ADR 0020, 0030, 0032)
 
@@ -219,7 +219,7 @@ implementations compile; these defaults are **not tested** (a test needs a stand
   not undoable. Its payload is
   **`{"redacted":true,"before":"redacted","after":"redacted"}`** (fixed with the 0.4 tag), `kind` unchanged (a `Create` stays
   `Create`). `Activity::is_redacted()` is true and `Activity::change_set()` checks it first and returns `Error::Invalid`;
-  `ChangeSet` has `deny_unknown_fields`. The strings are deliberate and fail closed: a reader from fs-store 0.2/0.3
+  `ChangeSet` has `deny_unknown_fields`. The strings are deliberate and fail closed: a reader from fs-objects 0.2/0.3
   parses `before`/`after` as `Option<StoredObject>`, which fails on a string, so an old hub reports an error instead of
   reading `after == None` as a deletion (tested with a frozen copy of that reader). A redacted write is new work, so it
   clears the actor's redo stack (it does not enter the undo stack).
