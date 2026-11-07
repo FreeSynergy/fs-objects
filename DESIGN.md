@@ -194,10 +194,12 @@ multi-process mode is experimental and not used: one process owns one database f
 
 ## Log purge of one object (ADR 0029, 0.4)
 
-> **Lock (strategy decision, 2026-11-07): no program calls `purge_object` until `fs-hub` and `fs-hub-client` run on `fs-store` 0.4**
-> and skip entries with `payload.redacted == true` (`Activity::is_redacted()`). Order: hub and hub client first, then any
-> caller of `purge_object`. The places in the hub workspace are in the table under "Hub contract" below. Owner of the hub
-> switch: Thread 3 (sprint point 5).
+> **Lock (strategy decision, 2026-11-07), now met by `fs-hub` v0.3.0:** no program calls `purge_object` directly; use
+> `sync_then_purge` of `fs-hub-client` (fs-hub v0.3.0). A purge before the sync deletes the unsynced mark entry
+> (`PurgeReport.unsynced_removed > 0`) and leaves the hub with the unmarked copy (ADR 0029). Hub and client skip
+> `payload.redacted == true` (`Activity::is_redacted()`) and are tested against a real `purge_object`
+> (`fs-hub-e2e/tests/purge.rs`, `purge_mark.rs`, `purge_sync.rs`). A mark can be lifted after a purge by the owner and
+> the marking program only.
 
 `HistoryRetention::purge_object(id) -> PurgeReport` removes **every** log entry of the object (`Create`, `Update`, `Delete`,
 `Undo`, log-only extras; synced or not). The object row is untouched. One transaction; on disk stores it then runs a WAL
