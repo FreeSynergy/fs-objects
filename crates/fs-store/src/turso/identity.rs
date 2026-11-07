@@ -1,6 +1,6 @@
 //! The store identity kept in table `meta` (key `store_id`), outside the activity log.
 //!
-//! Pattern: none (two small functions over one row): `ensure_identity` runs in the migration transaction and
+//! Pattern: Adapter — the Turso part of `StoreInfo` on `TursoStore` (two small functions over one `meta` row): `ensure_identity` runs in the migration transaction and
 //! keeps the id if there is one, otherwise makes exactly one. A copy of the file keeps the row, a new file makes its own.
 
 use turso::{Connection, Value};

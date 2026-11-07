@@ -39,14 +39,13 @@ async fn a_real_version_3_file_migrates_and_everything_new_works() {
             .build()
             .await
             .unwrap();
-        db.connect()
-            .unwrap()
-            .execute_batch(V3_SCHEMA)
-            .await
-            .unwrap();
+        let c = db.connect().unwrap();
+        c.execute_batch(V3_SCHEMA).await.unwrap();
+        c.execute_batch(&old_rows_sql()).await.unwrap();
     }
     let s = TursoStore::open(&path).await.unwrap();
     assert_eq!(s.schema_version(), 4);
+    assert_old_rows_survive(&s).await;
     let a = note("a", "text");
     s.put(a.clone(), ME).await.unwrap(); // the first logged put used to fail here
     let ballot = obj("Box", "b");

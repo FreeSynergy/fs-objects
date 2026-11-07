@@ -1,6 +1,6 @@
 //! Marks for ids written through `UnloggedObjects`, and the refusal of logged calls on them.
 //!
-//! Pattern: Specification — "is this id marked unlogged" (`refuse_unlogged`) is a predicate that refuses; the logged paths ask here before they touch an id; the unlogged
+//! Pattern: Repository (internal, part of `TursoStore`) — reads and writes the `unlogged_ids` marks; the logged paths ask here before they touch an id; the unlogged
 //! path records the id in the same transaction as its write, so the mark never lags behind.
 
 use turso::{Connection, Value};

@@ -96,3 +96,31 @@ pub async fn raw_sql(path: &std::path::Path, sql: &str) -> Vec<String> {
     }
     out
 }
+
+/// Fixed ids of the object and the log entry that `old_rows_sql` writes.
+pub const OLD_OBJECT: &str = "01900000-0000-7000-8000-000000000001";
+/// See [`OLD_OBJECT`].
+pub const OLD_ACTIVITY: &str = "01900000-0000-7000-8000-000000000002";
+
+/// SQL for one object and its `Create` entry, as an older version wrote them (columns that all versions have).
+pub fn old_rows_sql() -> String {
+    format!(
+        "INSERT INTO objects (id, type, name, published, updated, content_type, content, addressing, sensitive, name_sort) \
+         VALUES ('{OLD_OBJECT}', 'Note', 'old', 1000000, 1000000, 'application/json', '{{\"n\":\"old\"}}', '{{}}', '[]', 'old'); \
+         INSERT INTO activities (id, kind, object_id, actor, at, payload, synced) \
+         VALUES ('{OLD_ACTIVITY}', 'Create', '{OLD_OBJECT}', 'me', 1000000, '{{\"before\":null,\"after\":null}}', 1);"
+    )
+}
+
+/// After a migration: the old object reads, its old log entry is there and unchanged, and it can be purged.
+pub async fn assert_old_rows_survive(s: &TursoStore) {
+    let id: ObjectId = OLD_OBJECT.parse().unwrap();
+    let o = s.get(id).await.unwrap().unwrap();
+    assert_eq!(o.envelope.name, "old");
+    let log = s.activities(&ActivityFilter::default()).await.unwrap();
+    assert_eq!(log.len(), 1);
+    assert_eq!(log[0].id.to_string(), OLD_ACTIVITY);
+    assert!(log[0].synced);
+    assert!(!log[0].is_redacted());
+    assert_eq!(s.purge_object(id).await.unwrap().removed, 1);
+}

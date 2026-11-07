@@ -89,3 +89,19 @@ async fn a_changed_object_still_conflicts_after_the_purge() {
     assert!(matches!(s.undo(ME, 1).await, Err(Error::Conflict(_))));
     assert_eq!(now(&s, &y).await, "y3");
 }
+
+#[tokio::test]
+async fn a_write_after_the_purge_is_new_work_and_clears_the_redo_stack() {
+    let s = mem().await;
+    let (x, c) = (note("x", "x1"), note("c", "c1"));
+    s.put(x.clone(), ME).await.unwrap();
+    s.purge_object(x.envelope.id).await.unwrap();
+    s.put(c.clone(), ME).await.unwrap();
+    s.undo(ME, 1).await.unwrap();
+    assert_eq!(s.undo_state(ME).await.unwrap().redoable, 1);
+    set(&s, &x, "x2").await; // redacted entry
+    let st = s.undo_state(ME).await.unwrap();
+    assert_eq!((st.redoable, st.undoable), (0, 0));
+    assert!(s.redo(ME, 1).await.unwrap().is_empty());
+    assert!(s.get(c.envelope.id).await.unwrap().is_none());
+}

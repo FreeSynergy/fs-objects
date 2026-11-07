@@ -6,6 +6,34 @@ use serde_json::json;
 mod common;
 use common::*;
 
+fn redacted_payload() -> serde_json::Value {
+    json!({ "redacted": true, "before": "redacted", "after": "redacted" })
+}
+
+/// The reader of fs-store 0.2/0.3, frozen: `ChangeSet` as in `git show bf919bc:.../model/activity.rs`.
+/// A hub or client still on it must fail on the redacted payload, never see `(None, None)`.
+#[derive(Debug, serde::Deserialize)]
+#[allow(dead_code)]
+struct OldChangeSet {
+    before: Option<StoredObject>,
+    after: Option<StoredObject>,
+}
+
+#[tokio::test]
+async fn an_old_reader_fails_on_a_redacted_payload_instead_of_reading_a_deletion() {
+    let s = mem().await;
+    let o = note("x", "t");
+    s.put(o.clone(), ME).await.unwrap();
+    s.purge_object(o.envelope.id).await.unwrap();
+    let a = s.put(o, ME).await.unwrap();
+    let old: std::result::Result<OldChangeSet, serde_json::Error> =
+        serde_json::from_value(a.payload.clone());
+    assert!(old.is_err(), "an old reader accepted it: {old:?}");
+    // The same reader accepts a normal payload.
+    let n = s.put(note("y", "t"), ME).await.unwrap();
+    assert!(serde_json::from_value::<OldChangeSet>(n.payload).is_ok());
+}
+
 #[tokio::test]
 async fn a_put_after_a_purge_logs_only_the_redacted_mark_never_after_null() {
     let s = mem().await;
@@ -15,17 +43,17 @@ async fn a_put_after_a_purge_logs_only_the_redacted_mark_never_after_null() {
     o.content = json!({ "t": "new" });
     let upd = s.put(o.clone(), ME).await.unwrap();
     assert_eq!(upd.kind, ActivityKind::Update);
-    assert_eq!(upd.payload, json!({ "redacted": true }));
+    assert_eq!(upd.payload, redacted_payload());
     assert!(upd.is_redacted());
     assert!(upd.change_set().is_err());
     let del = s.delete(o.envelope.id, ME).await.unwrap();
-    assert_eq!(del.payload, json!({ "redacted": true }));
+    assert_eq!(del.payload, redacted_payload());
     // The object itself is intact: only the log lost its images.
     let fresh = note("y", "again");
     s.put(fresh.clone(), ME).await.unwrap();
     s.purge_object(fresh.envelope.id).await.unwrap();
     let create = s.put(fresh, ME).await.unwrap();
-    assert!(create.payload.get("after").is_none() && create.payload.get("before").is_none());
+    assert_eq!(create.payload, redacted_payload());
 }
 
 #[tokio::test]

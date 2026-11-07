@@ -127,7 +127,8 @@ pub struct Activity {
 
 impl Activity {
     /// True if the entry was written without images because its object's log was purged (ADR 0029). The
-    /// payload is exactly `{"redacted":true}`, with no `before` and no `after` key. Whoever applies
+    /// payload is `{"redacted":true,"before":"redacted","after":"redacted"}`: the strings make an older reader,
+    /// which expects objects or null, fail instead of reading a deletion. Whoever applies
     /// the log must **not** read this as a deletion: skip the entry and fetch the object's current copy.
     pub fn is_redacted(&self) -> bool {
         self.payload.get("redacted") == Some(&serde_json::Value::Bool(true))
@@ -154,6 +155,7 @@ impl Activity {
 /// removes the object (it is never rewritten, ADR 0030, so repeating it in
 /// every update would only waste space).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChangeSet {
     /// Image before the change (`None` for creation).
     pub before: Option<StoredObject>,

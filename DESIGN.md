@@ -18,7 +18,7 @@ seven is a `Store` (blanket impl). Every file is one concept, <= 200 lines (test
 | `store/query.rs` | Builder | `Query::new().of_type(..).name_contains(..)`, backend-neutral |
 | `store/cond.rs` | Interpreter-style data | conditions are values; the backend translates them |
 | `store/feed.rs`, `turso/subscribe.rs` | Observer | `broadcast` channel, sent after commit |
-| `turso/guard.rs` | Guard | logged paths ask whether an id belongs to the unlogged path; the mark is written in the same transaction as the unlogged write |
+| `turso/guard.rs` | Repository (internal) | reads and writes the `unlogged_ids` marks; logged paths ask before they touch an id, the mark is written in the same transaction as the unlogged write |
 | `store/unlogged.rs`, `turso/unlogged.rs` | Repository (separate narrow trait) | data that must not carry a time; outside the `Store` facade so nobody reaches it by accident |
 | `store/undo.rs`, `turso/undo.rs`, `history.rs`, `model/activity.rs` | Command | activities carry before/after images; undo applies the inverse, stacks are pure (`history::compute`) |
 | `turso/*` (whole tree) | Adapter | Turso behind the `Store` traits |
@@ -27,8 +27,9 @@ seven is a `Store` (blanket impl). Every file is one concept, <= 200 lines (test
 | `turso/migration.rs` | Template method | detect version, run the matching step in one transaction |
 | `turso/open.rs` | Factory | file / in-memory / with options |
 | `turso/encryption.rs`, `crypto.rs` | Strategy | `KeyProvider` supplies the key; Turso page encryption is applied |
-| `store/purge.rs`, `turso/purge.rs` | Template method | `purge_object`: one transaction (remember high-water mark, count, delete, mark object), then checkpoint + `VACUUM` on disk stores |
-| `store/info.rs`, `turso/info.rs`, `turso/identity.rs` | Strategy (segregation) / Adapter / Template method | `StoreInfo`: who is this store, is it encrypted; the identity row is made in the migration transaction |
+| `store/purge.rs` | none (result value) | `PurgeReport` |
+| `turso/purge.rs` | Adapter | the Turso part of `HistoryRetention` (`purge_object`, `clean_files`): one transaction (remember high-water mark, count, delete, mark object), then checkpoint + `VACUUM` on disk stores |
+| `store/info.rs`, `turso/info.rs`, `turso/identity.rs` | Strategy (segregation) / Adapter / Adapter | `StoreInfo`: who is this store, is it encrypted; the identity row (Turso part of `StoreInfo`) is made in the migration transaction |
 | `model/store_id.rs` | Newtype | `StoreId` is not an object or activity id |
 | `store/originals.rs`, `turso/originals.rs` | Strategy (policy) / Adapter | `LargeOriginals`: draft, Turso answers `Error::Backend("... not supported")` |
 | `turso/payload.rs` | Specification | `is_purged(object)` decides whether a write logs images |
@@ -196,7 +197,8 @@ multi-process mode is experimental and not used: one process owns one database f
 `HistoryRetention::purge_object(id) -> PurgeReport` removes **every** log entry of the object (`Create`, `Update`, `Delete`,
 `Undo`, log-only extras; synced or not). The object row is untouched. One transaction; on disk stores it then runs a WAL
 checkpoint and `VACUUM` (Turso 0.8.3 ignores `secure_delete`), tested: the needle leaves the database and the WAL. The default
-method answers `Error::Backend("... not supported")`, so older implementations of the trait compile.
+methods of `purge_object`, `clean_files` (and all of `LargeOriginals`) answer `Error::Backend("... not supported")`, so older
+implementations compile; these defaults are **not tested** (a test needs a stand-in store, which we do not write).
 `PurgeReport` is `#[non_exhaustive]` and has `file_cleaned`: the commit is what removes the entries; if the file clean-up cannot run
 (another reader holds the file, "database is locked") the call still returns `Ok` with `file_cleaned: false`, and
 `HistoryRetention::clean_files()` repeats only the clean-up (`Ok(false)` while still busy). Tested with an open read transaction.
@@ -207,11 +209,26 @@ method answers `Error::Backend("... not supported")`, so older implementations o
   entries removed are reported (`unsynced_removed`): the hub will never get them.
 * **Trap decided:** the next `put`/`delete` on a purged object would write a `before` image with the full content again.
   The object id is therefore recorded in `purged_objects` and later writes are logged **without images**. Such an entry is
-  not undoable. Its payload is exactly `{"redacted":true}`: **no `before` and no `after` key**, `kind` unchanged (a `Create`
-  stays `Create`), `Activity::is_redacted()` is true, and `Activity::change_set()` returns `Error::Invalid` for it.
-  **Hub contract:** a log entry with `payload.redacted == true` carries no object state and must **not** be read as a
-  deletion (`after` absent is not `after: null`). The consumer skips the entry and fetches the object's current copy from
-  the store (it is not applied from the log). Chosen over documenting the trap because a silent re-leak defeats the purpose.
+  not undoable. Its payload is
+  **`{"redacted":true,"before":"redacted","after":"redacted"}`** (fixed with the 0.4 tag), `kind` unchanged (a `Create` stays
+  `Create`). `Activity::is_redacted()` is true and `Activity::change_set()` checks it first and returns `Error::Invalid`;
+  `ChangeSet` has `deny_unknown_fields`. The strings are deliberate and fail closed: a reader from fs-store 0.2/0.3
+  parses `before`/`after` as `Option<StoredObject>`, which fails on a string, so an old hub reports an error instead of
+  reading `after == None` as a deletion (tested with a frozen copy of that reader). A redacted write is new work, so it
+  clears the actor's redo stack (it does not enter the undo stack).
+  **Hub contract:** a log entry with `payload.redacted == true` carries no object state and is **not** a deletion. The
+  consumer skips it and fetches the object's current copy from the store. **Switch the hub to 0.4 before any program that
+  can purge**, because a hub on 0.2/0.3 turns the entry into an error (nothing is lost, but sync of that entry stops).
+  Places in the hub workspace (from the review of 94a7e36):
+
+  | Place | What to do |
+  |---|---|
+  | `fs-hub core/apply.rs:35` (and `:56`) | `if a.is_redacted()`: skip, fetch the copy; never `after == None` => delete |
+  | `fs-hub-client sync/apply.rs:23` (and `:33`) | the same |
+  | `fs-hub server/subscription.rs:68` | report `updated` (or skip); never `deleted` |
+  | `fs-hub core/visibility.rs:25` | the type of a redacted entry is unknown (`None`): decide what the filter does |
+  | `fs-hub-proto convert/activity.rs:17` | not critical (payload is passed on as JSON) |
+
 * **Ids:** the highest activity id ever issued is kept in `meta.activity_high` (written by purge and compaction); the last id
   after a reopen is the larger of log maximum and that mark, so `ActivityId::next_after` stays above what the hub accepted.
 * **Scope:** only this store. The hub's own log needs the same call.
@@ -247,3 +264,9 @@ Measured by Thread 2: a 5 MiB message costs 6.9 MiB of log (the original is base
 * **Not built:** the Turso backend implements nothing yet; every method answers `Error::Backend("... not supported ...")`.
   The four target tests in `tests/large_originals.rs` are `#[ignore]` and fail until it exists. Open:
   the threshold applies to originals written afterwards only.
+
+## Concurrent first opens
+
+`BEGIN IMMEDIATE` retries on `Busy` for about five seconds, and the migration reads the schema version inside its
+transaction, so several first opens of one new file at once all succeed and share one identity (tested with four worker
+threads; it fails with "database is locked" without the retry).

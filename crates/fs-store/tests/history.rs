@@ -15,6 +15,7 @@ fn step(n: u128, kind: ActivityKind, target: Option<u128>) -> Step {
         id: id(n),
         kind,
         target: target.map(id),
+        redacted: false,
     }
 }
 

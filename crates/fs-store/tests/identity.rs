@@ -97,3 +97,20 @@ async fn an_older_file_without_identity_gets_exactly_one_on_first_open() {
     let rows = raw_sql(&path, "SELECT COUNT(*) FROM meta WHERE key = 'store_id'").await;
     assert_eq!(rows, vec!["Integer(1)".to_string()]);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn several_first_opens_at_once_all_succeed_and_agree_on_one_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("race.db");
+    let tasks: Vec<_> = (0..6)
+        .map(|_| {
+            let p = path.clone();
+            tokio::spawn(async move { TursoStore::open(&p).await.map(|s| StoreInfo::identity(&s)) })
+        })
+        .collect();
+    let mut ids = vec![];
+    for t in tasks {
+        ids.push(t.await.unwrap().unwrap());
+    }
+    assert!(ids.windows(2).all(|w| w[0] == w[1]), "{ids:?}");
+}

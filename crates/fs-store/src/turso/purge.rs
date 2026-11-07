@@ -1,6 +1,6 @@
 //! Log purge of one object.
 //!
-//! Pattern: none (a fixed sequence of steps, no variation point): one transaction (remember the high-water mark, count, delete, mark the object as purged), then the file clean-up. Marking makes later writes log without images (`payload.rs`); the high-water mark keeps
+//! Pattern: Adapter — the Turso part of `HistoryRetention::purge_object` and `clean_files` on `TursoStore`: one transaction (remember the high-water mark, count, delete, mark the object as purged), then the file clean-up. Marking makes later writes log without images (`payload.rs`); the high-water mark keeps
 //! activity ids above anything the hub accepted, also when the purged entry was the newest.
 
 use turso::{Connection, Value};
@@ -71,17 +71,16 @@ impl TursoStore {
             return Ok(true);
         }
         for sql in ["PRAGMA wal_checkpoint(TRUNCATE)", "VACUUM"] {
-            if let Err(e) = Self::run_all(c, sql).await {
-                if e.to_string().contains("locked") {
-                    return Ok(false);
-                }
-                return Err(e);
+            match Self::run_all(c, sql).await {
+                Ok(()) => {}
+                Err(turso::Error::Busy(_) | turso::Error::BusySnapshot(_)) => return Ok(false),
+                Err(e) => return Err(e.into()),
             }
         }
         Ok(true)
     }
 
-    async fn run_all(c: &Connection, sql: &str) -> Result<()> {
+    async fn run_all(c: &Connection, sql: &str) -> std::result::Result<(), turso::Error> {
         let mut rows = c.query(sql, ()).await?;
         while rows.next().await?.is_some() {}
         Ok(())

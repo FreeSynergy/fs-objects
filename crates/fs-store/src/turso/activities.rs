@@ -5,7 +5,7 @@
 use turso::{Connection, Value};
 
 use super::codec::decode_activity;
-use super::rows::{opt_text, text};
+use super::rows::{int, opt_text, text};
 use super::schema::ACTIVITY_COLS;
 use super::sql::{collect, exec};
 use crate::history::Step;
@@ -46,8 +46,8 @@ pub(super) async fn insert_activity(c: &Connection, a: &Activity) -> Result<()> 
 pub(super) async fn load_steps(c: &Connection, actor: &str) -> Result<Vec<Step>> {
     let rows = collect(
         c,
-        "SELECT id, kind, target FROM activities \
-         WHERE actor = ? AND redacted = 0 AND kind IN ('Create','Update','Delete','Undo') ORDER BY id",
+        "SELECT id, kind, target, redacted FROM activities \
+         WHERE actor = ? AND kind IN ('Create','Update','Delete','Undo') ORDER BY id",
         vec![Value::Text(actor.into())],
     )
     .await?;
@@ -57,6 +57,7 @@ pub(super) async fn load_steps(c: &Connection, actor: &str) -> Result<Vec<Step>>
                 id: text(&r[0])?.parse()?,
                 kind: text(&r[1])?.parse()?,
                 target: opt_text(&r[2])?.map(|s| s.parse()).transpose()?,
+                redacted: int(&r[3])? != 0,
             })
         })
         .collect()

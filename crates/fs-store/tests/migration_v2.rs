@@ -36,6 +36,7 @@ pub async fn v2_file(path: &std::path::Path) {
         .unwrap();
     let c = db.connect().unwrap();
     c.execute_batch(V2_SCHEMA).await.unwrap();
+    c.execute_batch(&old_rows_sql()).await.unwrap();
 }
 
 #[tokio::test]
@@ -45,6 +46,7 @@ async fn a_version_2_file_migrates_and_old_and_new_writes_work() {
     v2_file(&path).await;
     let s = TursoStore::open(&path).await.unwrap();
     assert_eq!(s.schema_version(), 4);
+    assert_old_rows_survive(&s).await;
     let a = obj("Note", "a");
     s.put(a.clone(), ME).await.unwrap();
     let b = obj("Box", "b");

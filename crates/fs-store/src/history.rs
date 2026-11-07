@@ -16,6 +16,8 @@ pub struct Step {
     pub kind: ActivityKind,
     /// For `Undo`: the reverted activity.
     pub target: Option<ActivityId>,
+    /// Written without images after a purge (ADR 0029): not undoable, but it is new work, so it clears redo.
+    pub redacted: bool,
 }
 
 /// Undo/redo stacks of one actor; the last element is the top.
@@ -41,7 +43,9 @@ pub fn compute(steps: &[Step]) -> Stacks {
     for st in steps {
         match st.kind {
             ActivityKind::Create | ActivityKind::Update | ActivityKind::Delete => {
-                s.undo.push(st.id);
+                if !st.redacted {
+                    s.undo.push(st.id);
+                }
                 s.redo.clear();
             }
             ActivityKind::Undo => {

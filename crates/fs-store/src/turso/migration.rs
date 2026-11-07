@@ -14,16 +14,18 @@ use crate::{Error, Result, sort_key};
 
 /// Bring the database to [`SCHEMA_VERSION`]: create it, or migrate a 0.1 database.
 pub(super) async fn migrate(c: &Connection) -> Result<()> {
-    let current = detect_version(c).await?;
-    if current > SCHEMA_VERSION {
-        return Err(Error::Backend(format!(
-            "database schema version {current} is newer than this fs-store ({SCHEMA_VERSION})"
-        )));
-    }
-    if current == SCHEMA_VERSION {
-        return Ok(());
-    }
+    // The version is read inside the transaction: of several first opens at once, the later ones see the
+    // finished schema and do nothing (`in_tx` waits for the writer lock).
     in_tx(c, async {
+        let current = detect_version(c).await?;
+        if current > SCHEMA_VERSION {
+            return Err(Error::Backend(format!(
+                "database schema version {current} is newer than this fs-store ({SCHEMA_VERSION})"
+            )));
+        }
+        if current == SCHEMA_VERSION {
+            return Ok(());
+        }
         if current == 0 {
             c.execute_batch(SCHEMA).await?;
         } else {
