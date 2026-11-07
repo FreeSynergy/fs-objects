@@ -277,3 +277,8 @@ Measured by Thread 2: a 5 MiB message costs 6.9 MiB of log (the original is base
 `BEGIN IMMEDIATE` retries on `Busy` for about five seconds, and the migration reads the schema version inside its
 transaction, so several first opens of one new file at once all succeed and share one identity (tested with four worker
 threads; it fails with "database is locked" without the retry).
+
+## After the sprint (strategy list, 2026-11-07)
+
+* Exact index search is O(n) (2,6 ms at 100 texts, 5,5 ms at 400, measured through fs-wiki) and `order_by_index` sorts all candidates before it cuts: pages stay linear in the rows read but cost O(rest) in the database. Measure again on 0.4 before anybody optimises.
+* `purge_object`: callers use `sync_then_purge` of `fs-hub-client` (see the lock above).
