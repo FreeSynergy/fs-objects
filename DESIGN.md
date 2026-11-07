@@ -194,6 +194,11 @@ multi-process mode is experimental and not used: one process owns one database f
 
 ## Log purge of one object (ADR 0029, 0.4)
 
+> **Lock (strategy decision, 2026-11-07): no program calls `purge_object` until `fs-hub` and `fs-hub-client` run on `fs-store` 0.4**
+> and skip entries with `payload.redacted == true` (`Activity::is_redacted()`). Order: hub and hub client first, then any
+> caller of `purge_object`. The places in the hub workspace are in the table under "Hub contract" below. Owner of the hub
+> switch: Thread 3 (sprint point 5).
+
 `HistoryRetention::purge_object(id) -> PurgeReport` removes **every** log entry of the object (`Create`, `Update`, `Delete`,
 `Undo`, log-only extras; synced or not). The object row is untouched. One transaction; on disk stores it then runs a WAL
 checkpoint and `VACUUM` (Turso 0.8.3 ignores `secure_delete`), tested: the needle leaves the database and the WAL. The default
