@@ -12,8 +12,8 @@ use crate::{ChangeSet, ObjectId, Result, StoredObject};
 /// Payload of an entry without images. `before` and `after` are the string `"redacted"`, not null or absent:
 /// a reader of fs-store 0.2/0.3 parses them as `Option<StoredObject>`, fails, and so reports an error instead
 /// of reading `after == None` as a deletion (the format is fixed with the 0.4 tag; see `DESIGN.md`).
-
-/// The payload for one change and whether it is written without images (such an entry is not undoable).
+///
+/// Returns the payload for one change and whether it is written without images (such an entry is not undoable).
 pub(super) async fn payload_for(
     c: &Connection,
     object: ObjectId,
