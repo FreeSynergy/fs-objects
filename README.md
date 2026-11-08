@@ -8,7 +8,7 @@ What is different here: the log is what makes undo and redo work, also after a r
 
 ## What it can do today
 
-Latest tag: `v0.6.0`.
+Latest tag: `v0.0.1`.
 
 - Store, read, query and delete objects; filter by type, context, owner and fields; order by name or time; page through results.
 - Change an object and write its log entry in one step, all or nothing.
