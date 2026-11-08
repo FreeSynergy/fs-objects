@@ -61,7 +61,10 @@ async fn undo_is_per_actor_and_detects_conflict() {
     assert!(matches!(s.undo("alice", 1).await, Err(Error::Conflict(_))));
     assert!(s.get(id).await.unwrap().is_some());
     // nothing for carol
-    assert!(s.undo("carol", 3).await.unwrap().is_empty());
+    assert_eq!(
+        s.undo("carol", 3).await.unwrap(),
+        [] as [fs_objects::Activity; 0]
+    );
     s.undo("bob", 1).await.unwrap();
     s.undo("alice", 1).await.unwrap();
     assert!(s.get(id).await.unwrap().is_none());
@@ -80,5 +83,8 @@ async fn undo_after_compaction_of_target_is_graceful() {
     s.mark_synced(all.last().unwrap().id).await.unwrap();
     s.clear_history().await.unwrap();
     assert_eq!(s.undo_state(ME).await.unwrap(), UndoState::default());
-    assert!(s.undo(ME, 3).await.unwrap().is_empty());
+    assert_eq!(
+        s.undo(ME, 3).await.unwrap(),
+        [] as [fs_objects::Activity; 0]
+    );
 }

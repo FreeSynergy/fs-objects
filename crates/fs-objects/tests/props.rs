@@ -45,7 +45,7 @@ async fn snapshot(s: &TursoStore, ids: &[ObjectId]) -> Vec<Slot> {
             s.get(*id)
                 .await
                 .unwrap()
-                .map(|o| o.content["v"].as_u64().unwrap() as u8),
+                .map(|o| u8::try_from(o.content["v"].as_u64().unwrap()).unwrap()),
         );
     }
     v
@@ -110,7 +110,7 @@ proptest! {
             }
             // index rows follow the content
             for (i, id) in ids.iter().enumerate() {
-                let hits = s.query(&Query::new().with_index("v", state[i].map(|v| v.to_string()).unwrap_or("none".into()))).await.unwrap();
+                let hits = s.query(&Query::new().with_index("v", state[i].map_or("none".into(), |v| v.to_string()))).await.unwrap();
                 prop_assert_eq!(hits.iter().any(|o| o.envelope.id == *id), state[i].is_some());
             }
             // log ids strictly increase

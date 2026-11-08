@@ -12,7 +12,7 @@ const BIG: usize = 1 << 20;
 fn message(name: &str) -> StoredObject {
     obj("Note", name).with_original(Blob {
         media_type: "message/rfc822".into(),
-        bytes: (0..BIG).map(|i| (i % 251) as u8).collect(),
+        bytes: (0..BIG).map(|i| u8::try_from(i % 251).unwrap()).collect(),
     })
 }
 
@@ -45,7 +45,7 @@ async fn the_log_carries_a_reference_not_the_bytes() {
     let log = log_text(&s).await;
     assert!(log.len() < 4096, "log is {} bytes", log.len());
     let r = s.original_ref(o.envelope.id).await.unwrap().unwrap();
-    assert_eq!(r.size as usize, BIG);
+    assert_eq!(r.size, u64::try_from(BIG).unwrap());
     assert_eq!(r.hash.len(), 64);
     assert!(log.contains(&r.hash));
     assert_eq!(

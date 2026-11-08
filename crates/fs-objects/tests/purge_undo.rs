@@ -102,6 +102,9 @@ async fn a_write_after_the_purge_is_new_work_and_clears_the_redo_stack() {
     set(&s, &x, "x2").await; // redacted entry
     let st = s.undo_state(ME).await.unwrap();
     assert_eq!((st.redoable, st.undoable), (0, 0));
-    assert!(s.redo(ME, 1).await.unwrap().is_empty());
+    assert_eq!(
+        s.redo(ME, 1).await.unwrap(),
+        [] as [fs_objects::Activity; 0]
+    );
     assert!(s.get(c.envelope.id).await.unwrap().is_none());
 }

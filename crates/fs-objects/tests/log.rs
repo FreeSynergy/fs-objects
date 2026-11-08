@@ -17,11 +17,9 @@ async fn failed_operation_rolls_back_object_and_log() {
         s.get(id).await.unwrap().is_none(),
         "object write must be rolled back"
     );
-    assert!(
-        s.activities(&ActivityFilter::default())
-            .await
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        s.activities(&ActivityFilter::default()).await.unwrap(),
+        [] as [fs_objects::Activity; 0]
     );
     // works afterwards
     s.put(o, ME).await.unwrap();

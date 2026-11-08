@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::result::Result;
 
-use fs_objects::*;
+use fs_objects::{Envelope, ObjectId, Order, Query, Store, StoredObject, TursoStore};
 use serde_json::Value;
 
 const ACTOR: &str = "https://local.invalid/users/owner";
@@ -17,7 +17,7 @@ fn s(v: &Value) -> Option<&str> {
     v.as_str().filter(|x| !x.is_empty())
 }
 
-/// `urn:uuid:<v7>` -> ObjectId, so re-imports update instead of duplicating.
+/// `urn:uuid:<v7>` -> `ObjectId`, so re-imports update instead of duplicating.
 fn id_from_uid(uid: &str) -> ObjectId {
     uid.parse().unwrap_or_default()
 }
@@ -111,17 +111,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let contacts = args
         .next()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| format!("{DEMO}/contacts.json").into());
+        .map_or_else(|| format!("{DEMO}/contacts.json").into(), PathBuf::from);
     let events = args
         .next()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| format!("{DEMO}/events.json").into());
+        .map_or_else(|| format!("{DEMO}/events.json").into(), PathBuf::from);
     let tmp = tempfile::tempdir()?;
     let db = args
         .next()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| tmp.path().join("contacts.db"));
+        .map_or_else(|| tmp.path().join("contacts.db"), PathBuf::from);
 
     let store = TursoStore::open(&db).await?;
     let c = import(&store, &contacts, card_to_object).await?;

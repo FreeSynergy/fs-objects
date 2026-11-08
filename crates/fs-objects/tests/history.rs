@@ -1,6 +1,6 @@
 //! Unit tests of the pure undo/redo stack computation.
 
-use fs_objects::history::{Step, compute};
+use fs_objects::history::{Stacks, Step, compute};
 use fs_objects::*;
 
 fn id(n: u128) -> ActivityId {
@@ -36,7 +36,10 @@ fn stacks_unit() {
         step(3, Undo, Some(2)),
     ]);
     assert_eq!(s.undo, vec![id(1)]);
-    assert!(s.redo.is_empty());
+    assert_eq!(
+        s.redo,
+        [] as [(fs_objects::ActivityId, fs_objects::ActivityId); 0]
+    );
     // new work clears redo
     let s = compute(&[
         step(1, Create, None),
@@ -44,10 +47,13 @@ fn stacks_unit() {
         step(3, Create, None),
     ]);
     assert_eq!(s.undo, vec![id(3)]);
-    assert!(s.redo.is_empty());
+    assert_eq!(
+        s.redo,
+        [] as [(fs_objects::ActivityId, fs_objects::ActivityId); 0]
+    );
     // compacted targets are ignored
     let s = compute(&[step(5, Undo, Some(1)), step(6, Undo, Some(5))]);
-    assert_eq!(s, Default::default());
+    assert_eq!(s, Stacks::default());
     // redo entries below an Undo of a compacted step are unreachable and dropped
     let s = compute(&[
         step(2, Create, None),

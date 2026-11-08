@@ -29,6 +29,9 @@ CREATE TABLE index_fields (
 ";
 
 /// Write a version 2 file with the schema above.
+///
+/// # Panics
+/// Panics if the database cannot be created or written (test helper).
 pub async fn v2_file(path: &std::path::Path) {
     let db = turso::Builder::new_local(path.to_str().unwrap())
         .build()

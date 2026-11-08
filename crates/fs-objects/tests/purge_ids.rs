@@ -9,6 +9,7 @@ use serde_json::json;
 const SECRET: &str = "SECRET-NEEDLE-0123456789";
 
 #[tokio::test]
+#[allow(clippy::many_single_char_names)] // a..f name the activity ids in log order; the story reads as a sequence
 async fn the_hole_in_the_middle_does_not_confuse_sync_marks_or_compaction() {
     let s = mem().await;
     let (x, y) = (note("x", "a"), note("y", "b"));
@@ -87,7 +88,10 @@ async fn later_writes_on_a_purged_object_log_without_images_and_are_not_undoable
     let del = s.delete(x.envelope.id, ME).await.unwrap();
     assert!(del.is_redacted());
     assert_eq!(s.undo_state(ME).await.unwrap().undoable, 0);
-    assert!(s.undo(ME, 1).await.unwrap().is_empty());
+    assert_eq!(
+        s.undo(ME, 1).await.unwrap(),
+        [] as [fs_objects::Activity; 0]
+    );
 }
 
 #[tokio::test]
