@@ -6,12 +6,15 @@ use async_trait::async_trait;
 use turso::Value;
 
 use super::TursoStore;
+use super::codec::decode_object;
 use super::guard::mark_unlogged;
-use super::objects::{load_object, remove_object, write_object};
+use super::objects::{attach_index, load_object, remove_object, write_object};
+use super::query_sql::{order_by, query_where};
+use super::schema::OBJECT_COLS;
 use super::sql::collect;
 use super::tx::in_tx;
 use super::validate::validate;
-use crate::{Error, ObjectId, Result, StoredObject, UnloggedObjects};
+use crate::{Error, ObjectId, Query, Result, StoredObject, UnloggedObjects};
 
 #[async_trait]
 impl UnloggedObjects for TursoStore {
@@ -65,5 +68,41 @@ impl UnloggedObjects for TursoStore {
         let inner = self.inner.lock().await;
         let conn = inner.conn.clone();
         in_tx(&conn, async { remove_object(&inner.conn, id).await }).await
+    }
+
+    async fn query_unlogged(&self, q: &Query, types: &[&str]) -> Result<Vec<StoredObject>> {
+        if types.is_empty() {
+            return Err(Error::Invalid(
+                "query_unlogged needs the object types of the calling program".into(),
+            ));
+        }
+        let inner = self.inner.lock().await;
+        let (w, mut p) = query_where(q)?;
+        let marks = vec!["?"; types.len()].join(",");
+        p.extend(types.iter().map(|t| Value::Text((*t).to_string())));
+        let glue = if w.is_empty() { " WHERE" } else { " AND" };
+        let w = format!(
+            "{w}{glue} o.type IN ({marks}) AND o.id IN (SELECT object_id FROM unlogged_ids)"
+        );
+        let order = order_by(q, &mut p);
+        let cols = OBJECT_COLS
+            .split(", ")
+            .map(|c| format!("o.{c}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        p.push(Value::Integer(q.limit.map_or(i64::MAX, |l| l as i64)));
+        p.push(Value::Integer(q.offset as i64));
+        let rows = collect(
+            &inner.conn,
+            &format!("SELECT {cols} FROM objects o{w} ORDER BY {order} LIMIT ? OFFSET ?"),
+            p,
+        )
+        .await?;
+        let mut objs = rows
+            .iter()
+            .map(|r| decode_object(r))
+            .collect::<Result<Vec<_>>>()?;
+        attach_index(&inner.conn, &mut objs).await?;
+        Ok(objs)
     }
 }

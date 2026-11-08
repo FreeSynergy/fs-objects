@@ -69,7 +69,7 @@ Version 0.4.0 (schema version 4).
 | Encryption at rest | done via `KeyProvider` + Turso page encryption (experimental in Turso); no key vault yet |
 | Sensitive data (ADR 0029) | envelope carries DPV categories; unencrypted store refuses sensitive objects unless opted out. No auto-link logic here (hub concern) |
 | Hub sync | only the data side: `activities(unsynced_only / after)` + `mark_synced`. No IPC (belongs to fs-hub) |
-| `UnloggedObjects` (0.3): `put_unlogged`, `read_unlogged`, `delete_unlogged`: no activity at any moment, no event, no undo, times as given. A separate trait, not part of `Store`; for anonymous ballots (`fs-surveys`). Old pages can stay on disk until reused. **0.4: the logged calls (`put`, `put_and_log`, `delete`, `get`, `query`, `log`) refuse an id written through it** (`Error::Invalid`, table `unlogged_ids`, kept after a delete) | done |
+| `UnloggedObjects` (0.3): `put_unlogged`, `read_unlogged`, `delete_unlogged`: no activity at any moment, no event, no undo, times as given. A separate trait, not part of `Store`; for anonymous ballots (`fs-surveys`). Old pages can stay on disk until reused. **0.4: the logged calls (`put`, `put_and_log`, `delete`, `get`, `query`, `log`) refuse an id written through it** (`Error::Invalid`, table `unlogged_ids`, kept after a delete) **0.6: `query_unlogged(&Query, types)`: searches marked objects of the given types only (types must not be empty); `query` still refuses.** | done |
 | Log purge (0.4) | done, see "Log purge of one object" |
 | Identity and `is_encrypted` (0.4) | done: `StoreInfo`, `StoreId`, schema version 4 |
 | Large originals (0.4) | **draft, `Unsupported`**: trait `LargeOriginals` + 4 ignored target tests, see below |

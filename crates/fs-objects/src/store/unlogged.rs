@@ -6,7 +6,7 @@
 
 use async_trait::async_trait;
 
-use crate::{ObjectId, Result, StoredObject};
+use crate::{ObjectId, Query, Result, StoredObject};
 
 /// Write and read single objects without the activity log.
 ///
@@ -32,4 +32,16 @@ pub trait UnloggedObjects: Send + Sync {
 
     /// Delete an object, if it exists.
     async fn delete_unlogged(&self, id: ObjectId) -> Result<()>;
+
+    /// Objects written unlogged, found by a [`Query`], limited to the object `types` the caller owns
+    /// (0.6). The logged [`query`](crate::ObjectQuery::query) keeps refusing marked ids; this is the
+    /// only way to search unlogged data. `types` must not be empty, and only marked (unlogged) objects
+    /// of those types are returned, so a program cannot read another program's unlogged data by
+    /// accident. Default: unsupported.
+    async fn query_unlogged(&self, q: &Query, types: &[&str]) -> Result<Vec<StoredObject>> {
+        let _ = (q, types);
+        Err(crate::Error::Backend(
+            "query_unlogged is not supported by this store".into(),
+        ))
+    }
 }
